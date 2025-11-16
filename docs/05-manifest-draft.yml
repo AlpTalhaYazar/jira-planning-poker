@@ -1,0 +1,30 @@
+modules:
+  jira:projectPage:
+    - key: planning-poker-project-page
+      title: Planning Poker
+      icon: resource:planning-poker-icon
+      layout: basic
+      resource: planning-poker-ui
+      resolver:
+        function: planning-poker-backend
+
+resources:
+  - key: planning-poker-ui
+    path: static/planning-poker-ui/build
+
+functions:
+  - key: planning-poker-backend
+    handler: index.handler
+
+app:
+  id: your-app-id-here
+  name: Planning Poker for Jira
+
+permissions:
+  scopes:
+    - read:jira-work
+    - write:jira-work
+    - read:jira-user
+  storage:
+    - read
+    - write

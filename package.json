@@ -1,0 +1,16 @@
+{
+  "name": "jira-planning-poker",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "build": "forge deploy --verbose"
+  },
+  "dependencies": {
+    "@forge/api": "^6.2.0",
+    "@forge/resolver": "^1.7.1"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.1",
+    "typescript": "^5.9.3"
+  }
+}

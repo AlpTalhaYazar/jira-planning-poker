@@ -1,0 +1,19 @@
+modules:
+  jira:projectPage:
+    - key: planning-poker-for-jira-hello-world-project-page
+      resource: main
+      resolver:
+        function: resolver
+      title: Planning Poker for Jira
+  function:
+    - key: resolver
+      handler: index.handler
+resources:
+  - key: main
+    path: static/hello-world/build
+app:
+  runtime:
+    name: nodejs22.x
+    memoryMB: 256
+    architecture: arm64
+  id: ari:cloud:ecosystem::app/54b97539-ff46-4e4f-b537-811e016c6f37

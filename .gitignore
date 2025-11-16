@@ -1,0 +1,17 @@
+# Node/Forge
+node_modules/
+dist/
+.forge/
+
+# Frontend build artifacts
+static/planning-poker-ui/node_modules/
+static/planning-poker-ui/dist/
+
+# Logs & OS files
+npm-debug.log*
+yarn-error.log*
+.DS_Store
+
+# Env/config secrets
+.env
+.env.local

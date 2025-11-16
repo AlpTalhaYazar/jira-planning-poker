@@ -1,0 +1,76 @@
+import api, { route } from '@forge/api';
+import type { Issue } from '../types/domain';
+
+interface GetIssuesParams {
+  projectKey?: string;
+  jql?: string;
+  maxResults?: number;
+}
+
+interface JiraSearchResponse {
+  issues: Array<{
+    key: string;
+    fields: {
+      summary?: string;
+      status?: {
+        name?: string;
+      };
+      [key: string]: unknown;
+    };
+  }>;
+}
+
+const DEFAULT_MAX_RESULTS = 20;
+
+export const getIssuesForProject = async ({
+  projectKey,
+  jql,
+  maxResults,
+}: GetIssuesParams): Promise<Issue[]> => {
+  const effectiveMax = Math.min(Math.max(maxResults ?? DEFAULT_MAX_RESULTS, 1), 100);
+  const effectiveJql =
+    jql ??
+    (projectKey
+      ? `project = "${projectKey}" AND statusCategory != Done ORDER BY updated DESC`
+      : 'ORDER BY updated DESC');
+
+  const response = await api
+    .asApp()
+    .requestJira(route`/rest/api/3/search`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        jql: effectiveJql,
+        maxResults: effectiveMax,
+        fields: ['summary', 'status', 'customfield_10016'],
+      }),
+    });
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`Failed to search Jira issues (${response.status}): ${text}`);
+  }
+
+  const data = (await response.json()) as JiraSearchResponse;
+
+  return data.issues.map((issue) => ({
+    key: issue.key,
+    summary: issue.fields.summary ?? 'No summary',
+    status: issue.fields.status?.name ?? 'Unknown',
+    estimate: extractEstimate(issue.fields),
+  }));
+};
+
+const estimateFieldCandidates = ['customfield_10016', 'customfield_10002'];
+
+const extractEstimate = (fields: Record<string, unknown>): string | undefined => {
+  for (const candidate of estimateFieldCandidates) {
+    const value = fields[candidate];
+    if (typeof value === 'number' || typeof value === 'string') {
+      return String(value);
+    }
+  }
+  return undefined;
+};
