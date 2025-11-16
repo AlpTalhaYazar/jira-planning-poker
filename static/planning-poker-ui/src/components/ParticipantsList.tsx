@@ -1,8 +1,8 @@
-import type { Participant } from '../types/poker';
+import type { Participant, Vote } from '../types/poker';
 
 interface ParticipantsListProps {
   participants: Participant[];
-  votes: Record<string, string | null>;
+  votes: Record<string, Vote>;
   isRevealed: boolean;
 }
 
@@ -34,7 +34,7 @@ export function ParticipantsList({ participants, votes, isRevealed }: Participan
                 <p className="vote-state">
                   {isRevealed && vote ? (
                     <>
-                      Revealed vote: <strong>{vote}</strong>
+                      Revealed vote: <strong>{vote.value}</strong>
                     </>
                   ) : hasVoted ? (
                     'Has voted'

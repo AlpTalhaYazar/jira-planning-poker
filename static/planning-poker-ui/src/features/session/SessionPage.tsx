@@ -1,9 +1,16 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Deck from '../voting/Deck';
 import IssuePanel from '../../components/IssuePanel';
 import ParticipantsList from '../../components/ParticipantsList';
-import type { Issue, Participant, SessionSummary, SessionWithParticipants } from '../../types/poker';
-import { fetchIssuesForProject, getSession as fetchSessionDetails } from '../../api/sessionsClient';
+import type { Issue, SessionWithParticipants, Vote } from '../../types/poker';
+import {
+  castVote as castVoteRequest,
+  clearVotes as clearVotesRequest,
+  fetchIssuesForProject,
+  getSession as fetchSessionDetails,
+  revealIssue as revealIssueRequest,
+  setCurrentIssue as setCurrentIssueRequest,
+} from '../../api/sessionsClient';
 
 interface SessionPageProps {
   data: SessionWithParticipants;
@@ -12,44 +19,20 @@ interface SessionPageProps {
   viewerAccountId?: string;
 }
 
-type VotesByIssue = Record<string, Record<string, string | null>>;
-
-const ensureVoteStructure = (
-  issues: Issue[],
-  participants: Participant[],
-  currentVotes: VotesByIssue
-): VotesByIssue => {
-  const next: VotesByIssue = {};
-  issues.forEach((issue) => {
-    const existing = currentVotes[issue.key] ?? {};
-    const voteEntry: Record<string, string | null> = {};
-    participants.forEach((participant) => {
-      voteEntry[participant.accountId] = existing[participant.accountId] ?? null;
-    });
-    next[issue.key] = voteEntry;
-  });
-  return next;
-};
-
-const numericValue = (value: string | null) => {
+const numericValue = (value: string | null | undefined) => {
   if (!value) return null;
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : null;
 };
 
-const summarizeVotes = (votes: Record<string, string | null>) => {
+const summarizeVotes = (votes: Record<string, Vote>) => {
   const numbers = Object.values(votes)
-    .map(numericValue)
+    .map((vote) => numericValue(vote?.value))
     .filter((value): value is number => value !== null)
     .sort((a, b) => a - b);
 
   if (!numbers.length) {
-    return {
-      average: '—',
-      median: '—',
-      min: '—',
-      max: '—',
-    };
+    return { average: '—', median: '—', min: '—', max: '—' };
   }
 
   const average = numbers.reduce((sum, value) => sum + value, 0) / numbers.length;
@@ -66,12 +49,16 @@ const summarizeVotes = (votes: Record<string, string | null>) => {
   };
 };
 
-const defaultJqlForSession = (session: SessionSummary) =>
+const defaultJqlForSession = (session: SessionWithParticipants['session']) =>
   session.jql ?? (session.projectKey ? `project = "${session.projectKey}" ORDER BY updated DESC` : '');
 
 export default function SessionPage({ data, onBack, onSessionData, viewerAccountId }: SessionPageProps) {
   const session = data.session;
   const participants = data.participants;
+  const viewerParticipant = viewerAccountId
+    ? participants.find((participant) => participant.accountId === viewerAccountId)
+    : undefined;
+  const viewerIsModerator = viewerParticipant?.isModerator ?? false;
 
   const [issues, setIssues] = useState<Issue[]>([]);
   const [isFetchingIssues, setIsFetchingIssues] = useState(false);
@@ -79,21 +66,34 @@ export default function SessionPage({ data, onBack, onSessionData, viewerAccount
   const [jqlDraft, setJqlDraft] = useState(defaultJqlForSession(session));
   const [appliedJql, setAppliedJql] = useState(defaultJqlForSession(session));
   const [currentIssueIndex, setCurrentIssueIndex] = useState(0);
-  const [votesByIssue, setVotesByIssue] = useState<VotesByIssue>({});
-  const [isRevealed, setIsRevealed] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [isSubmittingAction, setIsSubmittingAction] = useState(false);
+  const hasInitialisedIssueRef = useRef(false);
 
   useEffect(() => {
     setJqlDraft(defaultJqlForSession(session));
     setAppliedJql(defaultJqlForSession(session));
     setIssues([]);
-    setVotesByIssue({});
     setCurrentIssueIndex(0);
-    setIsRevealed(false);
+    setActionError(null);
+    hasInitialisedIssueRef.current = false;
   }, [session.id]);
 
-  useEffect(() => {
-    setVotesByIssue((prev) => ensureVoteStructure(issues, participants, prev));
-  }, [issues, participants]);
+  const currentIssue = issues[currentIssueIndex];
+  const currentIssueState =
+    currentIssue && data.currentIssueState?.issueKey === currentIssue.key ? data.currentIssueState : null;
+
+  const refreshSession = useCallback(
+    async () => {
+      try {
+        const latest = await fetchSessionDetails(session.id);
+        onSessionData(latest);
+      } catch (err) {
+        console.error('Failed to refresh session data', err);
+      }
+    },
+    [session.id, onSessionData]
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -138,66 +138,138 @@ export default function SessionPage({ data, onBack, onSessionData, viewerAccount
   }, [session.projectKey, session.id, appliedJql]);
 
   useEffect(() => {
-    const interval = setInterval(async () => {
-      try {
-        const latest = await fetchSessionDetails(session.id);
-        onSessionData(latest);
-      } catch (err) {
-        console.error('Failed to refresh session data', err);
+    if (!issues.length) {
+      hasInitialisedIssueRef.current = false;
+      return;
+    }
+
+    if (session.currentIssueKey) {
+      const idx = issues.findIndex((issue) => issue.key === session.currentIssueKey);
+      if (idx >= 0) {
+        hasInitialisedIssueRef.current = true;
+        if (idx !== currentIssueIndex) {
+          setCurrentIssueIndex(idx);
+        }
+        return;
       }
+    }
+
+    if (!hasInitialisedIssueRef.current) {
+      hasInitialisedIssueRef.current = true;
+      setCurrentIssueIndex(0);
+      const firstKey = issues[0]?.key;
+      if (viewerIsModerator && firstKey) {
+        setCurrentIssueRequest(session.id, firstKey)
+          .then((snapshot) => onSessionData(snapshot))
+          .catch((err) => {
+            console.error('Failed to sync the current issue', err);
+            setActionError('Unable to sync the current issue.');
+          });
+      }
+    }
+  }, [issues, session.currentIssueKey, currentIssueIndex, viewerIsModerator, session.id, onSessionData]);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      refreshSession();
     }, 4000);
-
     return () => clearInterval(interval);
-  }, [session.id, onSessionData]);
-
-  const currentIssue = issues[currentIssueIndex];
-  const currentVotes = currentIssue ? votesByIssue[currentIssue.key] ?? {} : {};
+  }, [refreshSession]);
 
   const localParticipantId =
     (viewerAccountId && participants.some((p) => p.accountId === viewerAccountId) && viewerAccountId) ||
     participants[0]?.accountId ||
     null;
 
+  const currentVotes = currentIssueState?.votes ?? {};
+  const isRevealed = currentIssueState?.isRevealed ?? false;
+
   const stats = useMemo(() => summarizeVotes(currentVotes), [currentVotes, isRevealed]);
 
-  const updateVotes = (issueKey: string, mutate: (votes: Record<string, string | null>) => Record<string, string | null>) => {
-    setVotesByIssue((prev) => ({
-      ...prev,
-      [issueKey]: mutate(prev[issueKey] ?? {}),
-    }));
-  };
+  const ensureModerator = useCallback(() => {
+    if (!viewerIsModerator) {
+      setActionError('Only moderators can control the session.');
+      return false;
+    }
+    return true;
+  }, [viewerIsModerator]);
+
+  const runAction = useCallback(
+    async (action: () => Promise<unknown>, errorMessage: string, requireModerator = true) => {
+      if (!currentIssue) {
+        return;
+      }
+      if (requireModerator && !viewerIsModerator) {
+        setActionError('Only moderators can control the session.');
+        return;
+      }
+      setActionError(null);
+      setIsSubmittingAction(true);
+      try {
+        await action();
+        await refreshSession();
+      } catch (err) {
+        console.error(errorMessage, err);
+        setActionError(errorMessage);
+      } finally {
+        setIsSubmittingAction(false);
+      }
+    },
+    [currentIssue, refreshSession, viewerIsModerator]
+  );
 
   const handleCardSelect = (value: string) => {
-    if (!localParticipantId || !currentIssue || isRevealed) return;
-    updateVotes(currentIssue.key, (existing) => ({
-      ...existing,
-      [localParticipantId]: existing[localParticipantId] === value ? null : value,
-    }));
+    if (!localParticipantId || !currentIssue || isRevealed || isSubmittingAction) return;
+    runAction(
+      () => castVoteRequest(session.id, currentIssue.key, value),
+      'Unable to submit your vote. Please try again.',
+      false
+    );
   };
 
-  const handleReveal = () => setIsRevealed(true);
+  const handleReveal = () => {
+    if (!currentIssue || isRevealed) return;
+    if (!ensureModerator()) return;
+    runAction(() => revealIssueRequest(session.id, currentIssue.key), 'Unable to reveal votes right now.');
+  };
 
   const handleRevote = () => {
     if (!currentIssue) return;
-    updateVotes(currentIssue.key, (existing) =>
-      Object.keys(existing).reduce<Record<string, string | null>>((acc, participantId) => {
-        acc[participantId] = null;
-        return acc;
-      }, {})
-    );
-    setIsRevealed(false);
+    if (!ensureModerator()) return;
+    runAction(() => clearVotesRequest(session.id, currentIssue.key), 'Unable to reset votes.');
   };
 
-  const moveToIssue = (nextIndex: number) => {
-    setCurrentIssueIndex(nextIndex);
-    setIsRevealed(false);
+  const changeIssue = (nextIndex: number) => {
+    const targetIssue = issues[nextIndex];
+    if (!targetIssue) {
+      return;
+    }
+    if (!viewerIsModerator) {
+      setActionError('Only moderators can control the session.');
+      return;
+    }
+    if (nextIndex === currentIssueIndex) {
+      return;
+    }
+    setActionError(null);
+    setIsSubmittingAction(true);
+    setCurrentIssueRequest(session.id, targetIssue.key)
+      .then((snapshot) => {
+        onSessionData(snapshot);
+        setCurrentIssueIndex(nextIndex);
+      })
+      .catch((err) => {
+        console.error('Unable to change issue', err);
+        setActionError('Unable to change the current issue.');
+      })
+      .finally(() => setIsSubmittingAction(false));
   };
 
-  const handlePrevIssue = () => moveToIssue(Math.max(0, currentIssueIndex - 1));
-  const handleNextIssue = () => moveToIssue(Math.min(issues.length - 1, currentIssueIndex + 1));
+  const handlePrevIssue = () => changeIssue(Math.max(0, currentIssueIndex - 1));
+  const handleNextIssue = () => changeIssue(Math.min(issues.length - 1, currentIssueIndex + 1));
   const handleAdvance = () => {
     if (currentIssueIndex < issues.length - 1) {
-      moveToIssue(currentIssueIndex + 1);
+      changeIssue(currentIssueIndex + 1);
     }
   };
 
@@ -205,7 +277,10 @@ export default function SessionPage({ data, onBack, onSessionData, viewerAccount
     setAppliedJql(jqlDraft);
   };
 
-  const everyoneHasVoted = currentIssue ? Object.values(currentVotes).every(Boolean) : false;
+  const everyoneHasVoted =
+    currentIssue &&
+    participants.length > 0 &&
+    participants.every((participant) => Boolean(currentVotes[participant.accountId]));
 
   return (
     <div className="session-layout">
@@ -229,7 +304,7 @@ export default function SessionPage({ data, onBack, onSessionData, viewerAccount
         </button>
       </div>
       <p className="meta-text">Current query: {appliedJql || 'None (default project filter)'}</p>
-
+      {actionError && <p className="error-text">{actionError}</p>}
       {issuesError && <p className="error-text">{issuesError}</p>}
       <IssuePanel
         issue={currentIssue}
@@ -241,9 +316,11 @@ export default function SessionPage({ data, onBack, onSessionData, viewerAccount
         onResetVotes={handleRevote}
         onAdvanceIssue={handleAdvance}
         isRevealed={isRevealed}
-        disableReveal={!everyoneHasVoted}
+        disableReveal={!everyoneHasVoted || isSubmittingAction}
         disableNext={currentIssueIndex === issues.length - 1}
         isLoading={isFetchingIssues}
+        canControl={viewerIsModerator}
+        isBusy={isSubmittingAction}
       />
 
       {currentIssue ? (
@@ -252,9 +329,9 @@ export default function SessionPage({ data, onBack, onSessionData, viewerAccount
           <div className="session-side">
             <Deck
               values={session.deckValues}
-              selectedValue={localParticipantId ? currentVotes[localParticipantId] ?? null : null}
+              selectedValue={localParticipantId ? currentVotes[localParticipantId]?.value ?? null : null}
               onSelect={handleCardSelect}
-              disabled={isRevealed}
+              disabled={isRevealed || isSubmittingAction}
               isRevealed={isRevealed}
             />
             {isRevealed && (

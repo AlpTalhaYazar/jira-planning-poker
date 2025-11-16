@@ -40,6 +40,18 @@ export interface Vote {
   createdAt: string;
 }
 
+export interface IssueVoteState {
+  issueKey: string;
+  isRevealed: boolean;
+  votes: Record<string, Vote>;
+}
+
+export interface SessionSnapshot {
+  session: Session;
+  participants: Participant[];
+  currentIssueState?: IssueVoteState | null;
+}
+
 export interface ProjectConfig {
   projectKey: string;
   estimateFieldId: string;

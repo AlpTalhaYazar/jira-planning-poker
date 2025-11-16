@@ -19,6 +19,20 @@ export interface Participant {
   isModerator: boolean;
 }
 
+export interface Vote {
+  sessionId: string;
+  issueKey: string;
+  accountId: string;
+  value: string;
+  createdAt: string;
+}
+
+export interface IssueVoteState {
+  issueKey: string;
+  isRevealed: boolean;
+  votes: Record<string, Vote>;
+}
+
 export interface SessionSummary {
   id: string;
   name: string;
@@ -34,4 +48,5 @@ export interface SessionSummary {
 export interface SessionWithParticipants {
   session: SessionSummary;
   participants: Participant[];
+  currentIssueState?: IssueVoteState | null;
 }

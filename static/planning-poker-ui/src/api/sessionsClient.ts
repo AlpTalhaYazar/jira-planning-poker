@@ -1,5 +1,11 @@
 import { invoke } from '@forge/bridge';
-import type { Issue, SessionSummary, SessionWithParticipants, DeckType } from '../types/poker';
+import type {
+  DeckType,
+  Issue,
+  IssueVoteState,
+  SessionSummary,
+  SessionWithParticipants,
+} from '../types/poker';
 
 export interface GetIssuesRequest {
   projectKey?: string;
@@ -25,15 +31,27 @@ export const listSessions = async ({ projectKey }: ListSessionsRequest): Promise
 export const createSession = async (payload: CreateSessionRequest): Promise<SessionWithParticipants> =>
   invoke<SessionWithParticipants>('createSession', payload);
 
-export const joinSession = async (sessionId: string): Promise<SessionWithParticipants> =>
-  invoke<SessionWithParticipants>('joinSession', { sessionId });
+export const joinSession = async (sessionId: string, issueKey?: string): Promise<SessionWithParticipants> =>
+  invoke<SessionWithParticipants>('joinSession', { sessionId, issueKey });
 
 export const leaveSession = async (sessionId: string): Promise<void> => {
   await invoke('leaveSession', { sessionId });
 };
 
-export const getSession = async (sessionId: string): Promise<SessionWithParticipants> =>
-  invoke<SessionWithParticipants>('getSession', { sessionId });
+export const getSession = async (sessionId: string, issueKey?: string): Promise<SessionWithParticipants> =>
+  invoke<SessionWithParticipants>('getSession', { sessionId, issueKey });
+
+export const castVote = async (sessionId: string, issueKey: string, value: string): Promise<IssueVoteState> =>
+  invoke<IssueVoteState>('castVote', { sessionId, issueKey, value });
+
+export const clearVotes = async (sessionId: string, issueKey: string): Promise<IssueVoteState> =>
+  invoke<IssueVoteState>('clearVotes', { sessionId, issueKey });
+
+export const revealIssue = async (sessionId: string, issueKey: string): Promise<IssueVoteState> =>
+  invoke<IssueVoteState>('revealIssue', { sessionId, issueKey });
+
+export const setCurrentIssue = async (sessionId: string, issueKey: string): Promise<SessionWithParticipants> =>
+  invoke<SessionWithParticipants>('setCurrentIssue', { sessionId, issueKey });
 
 export const fetchIssuesForProject = async (params: GetIssuesRequest): Promise<Issue[]> => {
   const response = await invoke<Issue[]>('getIssuesForProject', params);

@@ -13,6 +13,8 @@ interface IssuePanelProps {
   disableReveal: boolean;
   disableNext: boolean;
   isLoading?: boolean;
+  canControl: boolean;
+  isBusy?: boolean;
 }
 
 export function IssuePanel({
@@ -28,6 +30,8 @@ export function IssuePanel({
   disableReveal,
   disableNext,
   isLoading,
+  canControl,
+  isBusy = false,
 }: IssuePanelProps) {
   if (!issue) {
     return (
@@ -65,23 +69,38 @@ export function IssuePanel({
       </dl>
 
       <div className="issue-panel__actions">
-        <button type="button" className="secondary" onClick={onPrevious} disabled={index === 0}>
+        <button type="button" className="secondary" onClick={onPrevious} disabled={index === 0 || !canControl || isBusy}>
           Previous issue
         </button>
-        <button type="button" className="secondary" onClick={onNext} disabled={index === total - 1}>
+        <button
+          type="button"
+          className="secondary"
+          onClick={onNext}
+          disabled={index === total - 1 || !canControl || isBusy}
+        >
           Next issue
         </button>
         <span className="flex-spacer" />
         {!isRevealed ? (
-          <button type="button" className="primary" onClick={onReveal} disabled={disableReveal}>
+          <button
+            type="button"
+            className="primary"
+            onClick={onReveal}
+            disabled={disableReveal || !canControl || isBusy}
+          >
             Reveal votes
           </button>
         ) : (
           <>
-            <button type="button" className="secondary" onClick={onResetVotes}>
+            <button type="button" className="secondary" onClick={onResetVotes} disabled={!canControl || isBusy}>
               Revote
             </button>
-            <button type="button" className="primary" onClick={onAdvanceIssue} disabled={disableNext}>
+            <button
+              type="button"
+              className="primary"
+              onClick={onAdvanceIssue}
+              disabled={disableNext || !canControl || isBusy}
+            >
               Apply &amp; next issue
             </button>
           </>

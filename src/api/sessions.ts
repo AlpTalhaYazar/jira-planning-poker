@@ -1,6 +1,7 @@
 import api, { route, storage } from '@forge/api';
 import { randomUUID } from 'crypto';
-import type { Participant, Session, DeckType } from '../types/domain';
+import type { Participant, Session, DeckType, SessionSnapshot } from '../types/domain';
+import { getIssueState } from './votes';
 
 const sessionKey = (sessionId: string) => `session:${sessionId}`;
 const participantsKey = (sessionId: string) => `session:${sessionId}:participants`;
@@ -15,12 +16,7 @@ export interface CreateSessionInput {
   jql?: string;
 }
 
-export interface SessionWithParticipants {
-  session: Session;
-  participants: Participant[];
-}
-
-export const createSession = async (input: CreateSessionInput): Promise<SessionWithParticipants> => {
+export const createSession = async (input: CreateSessionInput): Promise<SessionSnapshot> => {
   const id = randomUUID();
   const createdAt = new Date().toISOString();
 
@@ -54,10 +50,7 @@ export const createSession = async (input: CreateSessionInput): Promise<SessionW
   ];
   await storage.set(participantsKey(id), participants);
 
-  return {
-    session,
-    participants,
-  };
+  return buildSnapshot(session, participants);
 };
 
 export const listSessionsByProject = async (projectKey: string): Promise<Session[]> => {
@@ -73,17 +66,17 @@ export const listSessionsByProject = async (projectKey: string): Promise<Session
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 };
 
-export const getSession = async (sessionId: string): Promise<SessionWithParticipants | null> => {
+export const getSession = async (sessionId: string, issueKeyOverride?: string): Promise<SessionSnapshot | null> => {
   const session = (await storage.get(sessionKey(sessionId))) as Session | undefined;
   if (!session) {
     return null;
   }
   const participants = ((await storage.get(participantsKey(sessionId))) as Participant[]) ?? [];
-  return { session, participants };
+  return buildSnapshot(session, participants, issueKeyOverride);
 };
 
-export const joinSession = async (sessionId: string): Promise<SessionWithParticipants> => {
-  const existing = await getSession(sessionId);
+export const joinSession = async (sessionId: string, issueKeyOverride?: string): Promise<SessionSnapshot> => {
+  const existing = await getSession(sessionId, issueKeyOverride);
   if (!existing) {
     throw new Error('Session not found');
   }
@@ -108,10 +101,7 @@ export const joinSession = async (sessionId: string): Promise<SessionWithPartici
 
   await storage.set(participantsKey(sessionId), participants);
 
-  return {
-    session: existing.session,
-    participants,
-  };
+  return buildSnapshot(existing.session, participants, issueKeyOverride);
 };
 
 export const leaveSession = async (sessionId: string, accountId: string): Promise<void> => {
@@ -146,5 +136,33 @@ const fetchCurrentUserProfile = async (): Promise<{ accountId: string; displayNa
     accountId: data.accountId,
     displayName: data.displayName ?? 'Unknown teammate',
     avatarUrl: data.avatarUrls?.['48x48'] ?? '',
+  };
+};
+
+export const setCurrentIssueKey = async (
+  sessionId: string,
+  issueKey: string | null
+): Promise<SessionSnapshot> => {
+  const session = (await storage.get(sessionKey(sessionId))) as Session | undefined;
+  if (!session) {
+    throw new Error('Session not found');
+  }
+  session.currentIssueKey = issueKey;
+  await storage.set(sessionKey(sessionId), session);
+  const participants = ((await storage.get(participantsKey(sessionId))) as Participant[]) ?? [];
+  return buildSnapshot(session, participants, issueKey ?? undefined);
+};
+
+const buildSnapshot = async (
+  session: Session,
+  participants: Participant[],
+  issueKeyOverride?: string
+): Promise<SessionSnapshot> => {
+  const issueKey = issueKeyOverride ?? session.currentIssueKey;
+  const currentIssueState = issueKey ? await getIssueState(session.id, issueKey) : null;
+  return {
+    session,
+    participants,
+    currentIssueState,
   };
 };
