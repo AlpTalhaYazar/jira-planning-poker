@@ -15,21 +15,21 @@ export function ParticipantsList({ participants, votes, isRevealed }: Participan
       </header>
       <ul className="participants-list">
         {participants.map((participant) => {
-          const vote = votes[participant.id];
+          const vote = votes[participant.accountId];
           const hasVoted = Boolean(vote);
           return (
-            <li key={participant.id}>
-              <span
-                className="avatar"
-                style={{ backgroundColor: participant.avatarColor ?? '#44546F' }}
-                aria-hidden
-              >
-                {participant.name.charAt(0)}
+            <li key={participant.accountId}>
+              <span className="avatar" aria-hidden>
+                {participant.avatarUrl ? (
+                  <img src={participant.avatarUrl} alt={participant.displayName} />
+                ) : (
+                  participant.displayName.charAt(0)
+                )}
               </span>
               <div className="participant-detail">
                 <p className="participant-name">
-                  {participant.name}{' '}
-                  {participant.role === 'moderator' && <span className="role-chip">Moderator</span>}
+                  {participant.displayName}{' '}
+                  {participant.isModerator && <span className="role-chip">Moderator</span>}
                 </p>
                 <p className="vote-state">
                   {isRevealed && vote ? (

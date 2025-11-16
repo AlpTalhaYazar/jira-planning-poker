@@ -36,7 +36,7 @@ export const getIssuesForProject = async ({
 
   const response = await api
     .asApp()
-    .requestJira(route`/rest/api/3/search`, {
+    .requestJira(route`/rest/api/3/search/jql`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

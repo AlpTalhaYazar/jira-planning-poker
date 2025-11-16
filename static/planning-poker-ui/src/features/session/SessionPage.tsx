@@ -2,25 +2,34 @@ import { useEffect, useMemo, useState } from 'react';
 import Deck from '../voting/Deck';
 import IssuePanel from '../../components/IssuePanel';
 import ParticipantsList from '../../components/ParticipantsList';
-import type { SessionDefinition, Issue } from '../../types/poker';
-import { fetchIssuesForProject } from '../../api/sessionsClient';
+import type { Issue, Participant, SessionSummary, SessionWithParticipants } from '../../types/poker';
+import { fetchIssuesForProject, getSession as fetchSessionDetails } from '../../api/sessionsClient';
 
 interface SessionPageProps {
-  session: SessionDefinition;
+  data: SessionWithParticipants;
   onBack: () => void;
+  onSessionData: (data: SessionWithParticipants) => void;
+  viewerAccountId?: string;
 }
 
 type VotesByIssue = Record<string, Record<string, string | null>>;
 
-const buildInitialVotes = (session: SessionDefinition, issues: Issue[]): VotesByIssue =>
-  issues.reduce<VotesByIssue>((acc, issue) => {
-    const provided = session.initialVotes?.[issue.key];
-    acc[issue.key] = session.participants.reduce<Record<string, string | null>>((voteAcc, participant) => {
-      voteAcc[participant.id] = provided?.[participant.id] ?? null;
-      return voteAcc;
-    }, {});
-    return acc;
-  }, {});
+const ensureVoteStructure = (
+  issues: Issue[],
+  participants: Participant[],
+  currentVotes: VotesByIssue
+): VotesByIssue => {
+  const next: VotesByIssue = {};
+  issues.forEach((issue) => {
+    const existing = currentVotes[issue.key] ?? {};
+    const voteEntry: Record<string, string | null> = {};
+    participants.forEach((participant) => {
+      voteEntry[participant.accountId] = existing[participant.accountId] ?? null;
+    });
+    next[issue.key] = voteEntry;
+  });
+  return next;
+};
 
 const numericValue = (value: string | null) => {
   if (!value) return null;
@@ -57,20 +66,38 @@ const summarizeVotes = (votes: Record<string, string | null>) => {
   };
 };
 
-export default function SessionPage({ session, onBack }: SessionPageProps) {
-  const [issues, setIssues] = useState<Issue[]>(session.issues);
+const defaultJqlForSession = (session: SessionSummary) =>
+  session.jql ?? (session.projectKey ? `project = "${session.projectKey}" ORDER BY updated DESC` : '');
+
+export default function SessionPage({ data, onBack, onSessionData, viewerAccountId }: SessionPageProps) {
+  const session = data.session;
+  const participants = data.participants;
+
+  const [issues, setIssues] = useState<Issue[]>([]);
   const [isFetchingIssues, setIsFetchingIssues] = useState(false);
   const [issuesError, setIssuesError] = useState<string | null>(null);
-  const defaultJql = session.projectKey ? `project = "${session.projectKey}" ORDER BY updated DESC` : '';
-  const [jqlDraft, setJqlDraft] = useState(defaultJql);
-  const [appliedJql, setAppliedJql] = useState(defaultJql);
+  const [jqlDraft, setJqlDraft] = useState(defaultJqlForSession(session));
+  const [appliedJql, setAppliedJql] = useState(defaultJqlForSession(session));
   const [currentIssueIndex, setCurrentIssueIndex] = useState(0);
-  const [votesByIssue, setVotesByIssue] = useState<VotesByIssue>(() => buildInitialVotes(session, session.issues));
+  const [votesByIssue, setVotesByIssue] = useState<VotesByIssue>({});
   const [isRevealed, setIsRevealed] = useState(false);
 
   useEffect(() => {
+    setJqlDraft(defaultJqlForSession(session));
+    setAppliedJql(defaultJqlForSession(session));
+    setIssues([]);
+    setVotesByIssue({});
+    setCurrentIssueIndex(0);
+    setIsRevealed(false);
+  }, [session.id]);
+
+  useEffect(() => {
+    setVotesByIssue((prev) => ensureVoteStructure(issues, participants, prev));
+  }, [issues, participants]);
+
+  useEffect(() => {
     let cancelled = false;
-    const loadIssues = async (jqlToUse?: string) => {
+    const loadIssues = async () => {
       if (!session.projectKey) {
         setIssuesError('Missing project key');
         return;
@@ -80,22 +107,21 @@ export default function SessionPage({ session, onBack }: SessionPageProps) {
       try {
         const fetched = await fetchIssuesForProject({
           projectKey: session.projectKey,
-          jql: jqlToUse || (appliedJql || undefined),
+          jql: appliedJql || undefined,
           maxResults: 20,
         });
         if (!cancelled) {
           if (fetched.length) {
             setIssues(fetched);
           } else {
-            setIssues(session.issues);
-            setIssuesError('No Jira issues matched the filter; showing mock defaults.');
+            setIssues([]);
+            setIssuesError('No Jira issues matched this query.');
           }
         }
       } catch (err) {
         if (!cancelled) {
           console.error('Failed to fetch Jira issues', err);
-          setIssues(session.issues);
-          setIssuesError('Unable to load issues from Jira (showing mock data).');
+          setIssuesError('Unable to load issues from Jira.');
         }
       } finally {
         if (!cancelled) {
@@ -104,42 +130,45 @@ export default function SessionPage({ session, onBack }: SessionPageProps) {
       }
     };
 
-    loadIssues(appliedJql);
+    loadIssues();
 
     return () => {
       cancelled = true;
     };
-  }, [session.id, session.projectKey, appliedJql]);
+  }, [session.projectKey, session.id, appliedJql]);
 
   useEffect(() => {
-    setVotesByIssue(buildInitialVotes(session, issues));
-    setCurrentIssueIndex(0);
-    setIsRevealed(false);
-  }, [issues, session]);
+    const interval = setInterval(async () => {
+      try {
+        const latest = await fetchSessionDetails(session.id);
+        onSessionData(latest);
+      } catch (err) {
+        console.error('Failed to refresh session data', err);
+      }
+    }, 4000);
 
-  useEffect(() => {
-    const nextDefault = session.projectKey ? `project = "${session.projectKey}" ORDER BY updated DESC` : '';
-    setJqlDraft(nextDefault);
-    setAppliedJql(nextDefault);
-  }, [session.projectKey, session.id]);
+    return () => clearInterval(interval);
+  }, [session.id, onSessionData]);
 
   const currentIssue = issues[currentIssueIndex];
-  const currentVotes = currentIssue ? votesByIssue[currentIssue.key] : {};
-  const localParticipantId = session.participants[0]?.id;
-  const selectedValue = localParticipantId ? currentVotes[localParticipantId] : null;
-  const everyoneHasVoted = currentIssue ? Object.values(currentVotes ?? {}).every(Boolean) : false;
+  const currentVotes = currentIssue ? votesByIssue[currentIssue.key] ?? {} : {};
+
+  const localParticipantId =
+    (viewerAccountId && participants.some((p) => p.accountId === viewerAccountId) && viewerAccountId) ||
+    participants[0]?.accountId ||
+    null;
 
   const stats = useMemo(() => summarizeVotes(currentVotes), [currentVotes, isRevealed]);
 
   const updateVotes = (issueKey: string, mutate: (votes: Record<string, string | null>) => Record<string, string | null>) => {
     setVotesByIssue((prev) => ({
       ...prev,
-      [issueKey]: mutate(prev[issueKey]),
+      [issueKey]: mutate(prev[issueKey] ?? {}),
     }));
   };
 
   const handleCardSelect = (value: string) => {
-    if (!localParticipantId || isRevealed) return;
+    if (!localParticipantId || !currentIssue || isRevealed) return;
     updateVotes(currentIssue.key, (existing) => ({
       ...existing,
       [localParticipantId]: existing[localParticipantId] === value ? null : value,
@@ -150,7 +179,7 @@ export default function SessionPage({ session, onBack }: SessionPageProps) {
 
   const handleRevote = () => {
     if (!currentIssue) return;
-    updateVotes(currentIssue.key, (existing = {}) =>
+    updateVotes(currentIssue.key, (existing) =>
       Object.keys(existing).reduce<Record<string, string | null>>((acc, participantId) => {
         acc[participantId] = null;
         return acc;
@@ -175,6 +204,8 @@ export default function SessionPage({ session, onBack }: SessionPageProps) {
   const handleApplyJql = () => {
     setAppliedJql(jqlDraft);
   };
+
+  const everyoneHasVoted = currentIssue ? Object.values(currentVotes).every(Boolean) : false;
 
   return (
     <div className="session-layout">
@@ -217,11 +248,11 @@ export default function SessionPage({ session, onBack }: SessionPageProps) {
 
       {currentIssue ? (
         <div className="session-grid">
-          <ParticipantsList participants={session.participants} votes={currentVotes} isRevealed={isRevealed} />
+          <ParticipantsList participants={participants} votes={currentVotes} isRevealed={isRevealed} />
           <div className="session-side">
             <Deck
               values={session.deckValues}
-              selectedValue={selectedValue ?? null}
+              selectedValue={localParticipantId ? currentVotes[localParticipantId] ?? null : null}
               onSelect={handleCardSelect}
               disabled={isRevealed}
               isRevealed={isRevealed}

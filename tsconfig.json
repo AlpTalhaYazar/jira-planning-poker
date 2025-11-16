@@ -9,7 +9,7 @@
     "skipLibCheck": true,
     "strict": true,
     "outDir": "dist",
-    "types": ["@forge/api"]
+    "types": ["@forge/api", "node"]
   },
   "include": ["src"],
   "exclude": ["node_modules", "static"]

@@ -4,6 +4,7 @@ export type SessionStatus = 'active' | 'closed';
 
 export interface Session {
   id: string;
+  name: string;
   projectKey: string;
   creatorAccountId: string;
   createdAt: string;
@@ -12,6 +13,7 @@ export interface Session {
   deckValues: string[];
   issueKeys: string[];
   currentIssueKey: string | null;
+  jql?: string;
 }
 
 export interface Issue {

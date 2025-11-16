@@ -1,6 +1,6 @@
-export type DeckValue = string;
+export type DeckType = 'fibonacci' | 'tshirt' | 'powers-of-two' | 'custom';
 
-export type ParticipantRole = 'moderator' | 'participant';
+export type SessionStatus = 'active' | 'closed';
 
 export interface Issue {
   key: string;
@@ -11,18 +11,27 @@ export interface Issue {
 }
 
 export interface Participant {
-  id: string;
-  name: string;
-  role: ParticipantRole;
-  avatarColor?: string;
+  accountId: string;
+  displayName: string;
+  avatarUrl: string;
+  joinedAt: string;
+  lastSeenAt: string;
+  isModerator: boolean;
 }
 
-export interface SessionDefinition {
+export interface SessionSummary {
   id: string;
   name: string;
-  deckValues: DeckValue[];
   projectKey: string;
-  issues: Issue[];
+  createdAt: string;
+  status: SessionStatus;
+  deckType: DeckType;
+  deckValues: string[];
+  currentIssueKey: string | null;
+  jql?: string;
+}
+
+export interface SessionWithParticipants {
+  session: SessionSummary;
   participants: Participant[];
-  initialVotes?: Record<string, Record<string, DeckValue | null>>;
 }
