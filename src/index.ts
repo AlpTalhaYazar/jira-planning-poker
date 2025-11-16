@@ -1,6 +1,6 @@
 import Resolver from '@forge/resolver';
 import type { Vote } from './types/domain';
-import { getIssuesForProject } from './api/jira';
+import { getIssuesForProject, applyEstimate as applyEstimateRequest } from './api/jira';
 import {
   createSession,
   getSession as getSessionRecord,
@@ -10,6 +10,7 @@ import {
   setCurrentIssueKey,
 } from './api/sessions';
 import { recordVote, clearVotes, setIssueRevealState } from './api/votes';
+import { getProjectConfig, setProjectConfig } from './api/config';
 
 const resolver = new Resolver();
 
@@ -137,6 +138,49 @@ resolver.define('setCurrentIssue', async (req) => {
     throw new Error('Only moderators can change the current issue.');
   }
   return setCurrentIssueKey(sessionId, issueKey);
+});
+
+resolver.define('getProjectConfig', async (req) => {
+  const { projectKey } = req.payload ?? {};
+  if (!projectKey) {
+    throw new Error('projectKey is required');
+  }
+  return getProjectConfig(projectKey);
+});
+
+resolver.define('setProjectConfig', async (req) => {
+  const { projectKey, estimateFieldId, deckType, deckValues, defaultJql } = req.payload ?? {};
+  if (!projectKey || !deckType) {
+    throw new Error('projectKey and deckType are required');
+  }
+  return setProjectConfig({
+    projectKey,
+    estimateFieldId,
+    deckType,
+    deckValues,
+    defaultJql,
+  });
+});
+
+resolver.define('applyEstimate', async (req) => {
+  const { sessionId, issueKey, value } = req.payload ?? {};
+  const accountId = req.context?.accountId;
+  if (!sessionId || !issueKey || !value || !accountId) {
+    throw new Error('sessionId, issueKey, value, and accountId are required');
+  }
+  const snapshot = await getSessionRecord(sessionId);
+  if (!snapshot) {
+    throw new Error('Session not found');
+  }
+  const participant = snapshot.participants.find((p) => p.accountId === accountId);
+  if (!participant || !participant.isModerator) {
+    throw new Error('Only moderators can apply estimates.');
+  }
+  const config = await getProjectConfig(snapshot.session.projectKey);
+  if (!config.estimateFieldId) {
+    throw new Error('No estimate field configured for this project.');
+  }
+  return applyEstimateRequest({ sessionId, issueKey, value }, config.estimateFieldId);
 });
 
 export const handler = resolver.getDefinitions();

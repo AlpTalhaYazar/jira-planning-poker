@@ -1,5 +1,5 @@
 import api, { route } from '@forge/api';
-import type { Issue } from '../types/domain';
+import type { Issue, ApplyEstimateInput } from '../types/domain';
 
 interface GetIssuesParams {
   projectKey?: string;
@@ -73,4 +73,31 @@ const extractEstimate = (fields: Record<string, unknown>): string | undefined =>
     }
   }
   return undefined;
+};
+
+export const applyEstimate = async ({ sessionId, issueKey, value }: ApplyEstimateInput, fieldId: string) => {
+  const response = await api
+    .asApp()
+    .requestJira(route`/rest/api/3/issue/${issueKey}`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        fields: {
+          [fieldId]: Number.isFinite(Number(value)) ? Number(value) : value,
+        },
+      }),
+    });
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`Failed to apply estimate (${response.status}) ${text}`);
+  }
+
+  return {
+    sessionId,
+    issueKey,
+    value,
+  };
 };

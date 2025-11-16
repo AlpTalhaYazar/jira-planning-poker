@@ -54,8 +54,14 @@ export interface SessionSnapshot {
 
 export interface ProjectConfig {
   projectKey: string;
-  estimateFieldId: string;
+  estimateFieldId?: string;
   deckType: DeckType;
   deckValues?: string[];
   defaultJql?: string;
+}
+
+export interface ApplyEstimateInput {
+  sessionId: string;
+  issueKey: string;
+  value: string;
 }
