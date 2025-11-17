@@ -1,4 +1,4 @@
-import type { DeckType, Issue, IssueVoteState, SessionSummary, SessionWithParticipants } from '../types/poker';
+import type { DeckType, Issue, IssueVoteState, ProjectConfig, SessionSummary, SessionWithParticipants } from '../types/poker';
 export interface GetIssuesRequest {
     projectKey?: string;
     jql?: string;
@@ -23,4 +23,11 @@ export declare const castVote: (sessionId: string, issueKey: string, value: stri
 export declare const clearVotes: (sessionId: string, issueKey: string) => Promise<IssueVoteState>;
 export declare const revealIssue: (sessionId: string, issueKey: string) => Promise<IssueVoteState>;
 export declare const setCurrentIssue: (sessionId: string, issueKey: string) => Promise<SessionWithParticipants>;
+export declare const getProjectConfig: (projectKey: string) => Promise<ProjectConfig>;
+export declare const setProjectConfig: (config: ProjectConfig) => Promise<ProjectConfig>;
+export declare const applyEstimate: (sessionId: string, issueKey: string, value: string) => Promise<{
+    sessionId: string;
+    issueKey: string;
+    value: string;
+}>;
 export declare const fetchIssuesForProject: (params: GetIssuesRequest) => Promise<Issue[]>;

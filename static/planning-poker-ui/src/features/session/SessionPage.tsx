@@ -2,8 +2,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Deck from '../voting/Deck';
 import IssuePanel from '../../components/IssuePanel';
 import ParticipantsList from '../../components/ParticipantsList';
-import type { Issue, SessionWithParticipants, Vote } from '../../types/poker';
+import type { Issue, ProjectConfig, SessionWithParticipants, Vote } from '../../types/poker';
 import {
+  applyEstimate as applyEstimateRequest,
   castVote as castVoteRequest,
   clearVotes as clearVotesRequest,
   fetchIssuesForProject,
@@ -17,6 +18,7 @@ interface SessionPageProps {
   onBack: () => void;
   onSessionData: (data: SessionWithParticipants) => void;
   viewerAccountId?: string;
+  projectConfig?: ProjectConfig | null;
 }
 
 const numericValue = (value: string | null | undefined) => {
@@ -52,7 +54,7 @@ const summarizeVotes = (votes: Record<string, Vote>) => {
 const defaultJqlForSession = (session: SessionWithParticipants['session']) =>
   session.jql ?? (session.projectKey ? `project = "${session.projectKey}" ORDER BY updated DESC` : '');
 
-export default function SessionPage({ data, onBack, onSessionData, viewerAccountId }: SessionPageProps) {
+export default function SessionPage({ data, onBack, onSessionData, viewerAccountId, projectConfig }: SessionPageProps) {
   const session = data.session;
   const participants = data.participants;
   const viewerParticipant = viewerAccountId
@@ -185,6 +187,28 @@ export default function SessionPage({ data, onBack, onSessionData, viewerAccount
   const isRevealed = currentIssueState?.isRevealed ?? false;
 
   const stats = useMemo(() => summarizeVotes(currentVotes), [currentVotes, isRevealed]);
+  const [applyValue, setApplyValue] = useState<string>('');
+  const [applyMessage, setApplyMessage] = useState<string | null>(null);
+  const estimatedSuggestion = useMemo(() => {
+    if (stats.median && stats.median !== '—') {
+      return stats.median;
+    }
+    if (stats.average && stats.average !== '—') {
+      return stats.average;
+    }
+    return '';
+  }, [stats.median, stats.average]);
+
+  useEffect(() => {
+    if (!isRevealed) {
+      setApplyValue('');
+      setApplyMessage(null);
+      return;
+    }
+    if (!applyValue) {
+      setApplyValue(estimatedSuggestion);
+    }
+  }, [isRevealed, estimatedSuggestion, applyValue]);
 
   const ensureModerator = useCallback(() => {
     if (!viewerIsModerator) {
@@ -237,6 +261,8 @@ export default function SessionPage({ data, onBack, onSessionData, viewerAccount
     if (!currentIssue) return;
     if (!ensureModerator()) return;
     runAction(() => clearVotesRequest(session.id, currentIssue.key), 'Unable to reset votes.');
+    setApplyValue('');
+    setApplyMessage(null);
   };
 
   const changeIssue = (nextIndex: number) => {
@@ -253,6 +279,8 @@ export default function SessionPage({ data, onBack, onSessionData, viewerAccount
     }
     setActionError(null);
     setIsSubmittingAction(true);
+    setApplyValue('');
+    setApplyMessage(null);
     setCurrentIssueRequest(session.id, targetIssue.key)
       .then((snapshot) => {
         onSessionData(snapshot);
@@ -358,6 +386,68 @@ export default function SessionPage({ data, onBack, onSessionData, viewerAccount
                     <dd>{stats.max}</dd>
                   </div>
                 </dl>
+                {viewerIsModerator && (
+                  <div className="apply-estimate">
+                    <header>
+                      <h4>Apply estimate to Jira</h4>
+                      {!projectConfig?.estimateFieldId && (
+                        <p className="error-text">Configure an estimate field before applying.</p>
+                      )}
+                    </header>
+                    <div className="apply-estimate__chips">
+                      {(projectConfig?.deckValues ?? session.deckValues).map((value) => (
+                        <button
+                          key={value}
+                          type="button"
+                          className={`chip ${applyValue === value ? 'chip--selected' : ''}`}
+                          onClick={() => {
+                            setApplyMessage(null);
+                            setApplyValue(value);
+                          }}
+                        >
+                          {value}
+                        </button>
+                      ))}
+                    </div>
+                    <label htmlFor="apply-estimate-input">Custom value</label>
+                    <input
+                      id="apply-estimate-input"
+                      type="text"
+                      value={applyValue}
+                      onChange={(event) => {
+                        setApplyMessage(null);
+                        setApplyValue(event.target.value);
+                      }}
+                      placeholder={estimatedSuggestion || 'Enter final value'}
+                    />
+                    <button
+                      type="button"
+                      className="primary"
+                      onClick={() =>
+                        runAction(
+                          async () => {
+                            if (!currentIssue) return;
+                            const valueToApply = applyValue.trim() || estimatedSuggestion;
+                            if (!valueToApply) {
+                              throw new Error('No estimate selected');
+                            }
+                            if (!projectConfig?.estimateFieldId) {
+                              throw new Error('No estimate field configured for this project.');
+                            }
+                            await applyEstimateRequest(session.id, currentIssue.key, valueToApply);
+                            setApplyMessage('Estimate applied to Jira ✔');
+                          },
+                          'Unable to apply estimate.',
+                          true
+                        )
+                      }
+                      disabled={isSubmittingAction || !applyValue || !projectConfig?.estimateFieldId}
+                    >
+                      Apply to Jira
+                    </button>
+                    {applyMessage && <p className="success-text">{applyMessage}</p>}
+                  </div>
+                )}
               </section>
             )}
           </div>

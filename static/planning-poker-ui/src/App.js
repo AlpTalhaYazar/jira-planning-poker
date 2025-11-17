@@ -2,7 +2,7 @@ import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
 import { useCallback, useEffect, useState } from 'react';
 import { view } from '@forge/bridge';
 import SessionPage from './features/session/SessionPage';
-import { createSession as createSessionApi, joinSession as joinSessionApi, leaveSession as leaveSessionApi, listSessions, } from './api/sessionsClient';
+import { createSession as createSessionApi, joinSession as joinSessionApi, leaveSession as leaveSessionApi, listSessions, getProjectConfig, setProjectConfig, } from './api/sessionsClient';
 const DEFAULT_FIBONACCI_DECK = ['0', '0.5', '1', '2', '3', '5', '8', '13', '20', '40', '100', '?', '☕'];
 export default function App() {
     const [context, setContext] = useState(null);
@@ -16,6 +16,10 @@ export default function App() {
     const [createSessionJql, setCreateSessionJql] = useState('');
     const [isCreatingSession, setIsCreatingSession] = useState(false);
     const [sessionActionError, setSessionActionError] = useState(null);
+    const [projectConfig, setProjectConfigState] = useState(null);
+    const [isConfigLoaded, setIsConfigLoaded] = useState(false);
+    const [configError, setConfigError] = useState(null);
+    const [isSavingConfig, setIsSavingConfig] = useState(false);
     useEffect(() => {
         let cancelled = false;
         const fetchContext = async () => {
@@ -45,6 +49,9 @@ export default function App() {
     const projectName = context?.extension?.project?.name;
     const projectKey = context?.extension?.project?.key;
     const viewerAccountId = context?.accountId;
+    const effectiveDeckValues = projectConfig?.deckValues ?? DEFAULT_FIBONACCI_DECK;
+    const effectiveDeckType = projectConfig?.deckType ?? 'fibonacci';
+    const effectiveDefaultJql = createSessionJql || projectConfig?.defaultJql || (projectKey ? `project = "${projectKey}" AND statusCategory != Done` : '');
     const refreshSessions = useCallback(async (key) => {
         setIsLoadingSessions(true);
         setSessionsError(null);
@@ -63,8 +70,23 @@ export default function App() {
     useEffect(() => {
         if (projectKey) {
             refreshSessions(projectKey);
+            if (!isConfigLoaded) {
+                (async () => {
+                    try {
+                        const cfg = await getProjectConfig(projectKey);
+                        setProjectConfigState(cfg);
+                    }
+                    catch (err) {
+                        console.error('Failed to load project config', err);
+                        setConfigError('Unable to load project configuration.');
+                    }
+                    finally {
+                        setIsConfigLoaded(true);
+                    }
+                })();
+            }
         }
-    }, [projectKey, refreshSessions]);
+    }, [projectKey, refreshSessions, isConfigLoaded]);
     const handleCreateSession = async () => {
         if (!projectKey) {
             setSessionActionError('Project key missing from context.');
@@ -77,9 +99,9 @@ export default function App() {
             const newSession = await createSessionApi({
                 projectKey,
                 name,
-                deckType: 'fibonacci',
-                deckValues: DEFAULT_FIBONACCI_DECK,
-                jql: createSessionJql.trim() || undefined,
+                deckType: effectiveDeckType,
+                deckValues: effectiveDeckValues,
+                jql: createSessionJql.trim() || projectConfig?.defaultJql || undefined,
             });
             setSessions((prev) => [newSession.session, ...prev.filter((session) => session.id !== newSession.session.id)]);
             setActiveSession(newSession);
@@ -123,6 +145,35 @@ export default function App() {
         }
     };
     const pageTitle = activeSession ? activeSession.session.name : 'Planning Poker Sessions';
-    const renderSessionList = () => (_jsxs("div", { className: "session-list", children: [_jsxs("div", { className: "info-card", children: [_jsx("p", { children: "Sessions are shared across your Jira site. Create one for each refinement or sprint planning meeting." }), _jsxs("p", { children: [_jsx("strong", { children: "Project:" }), " ", projectName ?? 'Unknown', " (", projectKey ?? 'n/a', ")"] })] }), _jsxs("div", { className: "session-create-card", children: [_jsxs("div", { className: "session-create-fields", children: [_jsx("label", { htmlFor: "session-name", children: "Session name" }), _jsx("input", { id: "session-name", type: "text", value: createSessionName, onChange: (event) => setCreateSessionName(event.target.value), placeholder: "e.g. Sprint 42 Estimation" })] }), _jsxs("div", { className: "session-create-fields", children: [_jsx("label", { htmlFor: "session-jql", children: "Default JQL (optional)" }), _jsx("input", { id: "session-jql", type: "text", value: createSessionJql, onChange: (event) => setCreateSessionJql(event.target.value), placeholder: `Defaults to project = "${projectKey ?? 'KEY'}"` })] }), _jsx("button", { type: "button", className: "primary", onClick: handleCreateSession, disabled: isCreatingSession, children: isCreatingSession ? 'Creating…' : 'Create session' })] }), sessionActionError && _jsx("p", { className: "error-text", children: sessionActionError }), sessionsError && _jsx("p", { className: "error-text", children: sessionsError }), isLoadingSessions ? (_jsx("p", { children: "Loading sessions\u2026" })) : sessions.length === 0 ? (_jsx("p", { children: "No sessions yet. Create one to get started." })) : (_jsx("div", { className: "session-card-grid", children: sessions.map((session) => (_jsxs("article", { className: "session-card", children: [_jsxs("header", { children: [_jsxs("p", { className: "eyebrow", children: ["Project ", session.projectKey] }), _jsx("h2", { children: session.name })] }), _jsxs("p", { children: ["Deck: ", session.deckType] }), _jsxs("p", { children: ["Created ", new Date(session.createdAt).toLocaleString()] }), _jsx("button", { type: "button", className: "primary", onClick: () => handleOpenSession(session.id), children: "Open session" })] }, session.id))) }))] }));
-    return (_jsxs("div", { className: "app-shell", children: [_jsx("header", { className: "app-header", children: _jsxs("div", { children: [_jsx("p", { className: "eyebrow", children: "Jira Planning Poker" }), _jsx("h1", { children: pageTitle })] }) }), _jsxs("main", { className: "app-content", children: [isLoadingContext && _jsx("p", { children: "Loading Jira context\u2026" }), !isLoadingContext && contextError && _jsx("p", { className: "error-text", children: contextError }), !isLoadingContext && !contextError && !activeSession && renderSessionList(), !isLoadingContext && !contextError && activeSession && (_jsx(SessionPage, { data: activeSession, onBack: handleBackToList, onSessionData: handleSessionDataUpdate, viewerAccountId: viewerAccountId }))] })] }));
+    const renderSessionList = () => (_jsxs("div", { className: "session-list", children: [_jsxs("div", { className: "info-card", children: [_jsx("p", { children: "Sessions are shared across your Jira site. Create one for each refinement or sprint planning meeting." }), _jsxs("p", { children: [_jsx("strong", { children: "Project:" }), " ", projectName ?? 'Unknown', " (", projectKey ?? 'n/a', ")"] }), !projectConfig?.estimateFieldId && (_jsx("p", { className: "error-text", children: "Estimate field not configured. Apply-to-Jira will be disabled until you set one." }))] }), _jsxs("div", { className: "session-create-card", children: [_jsxs("div", { className: "session-create-fields", children: [_jsx("label", { htmlFor: "session-name", children: "Session name" }), _jsx("input", { id: "session-name", type: "text", value: createSessionName, onChange: (event) => setCreateSessionName(event.target.value), placeholder: "e.g. Sprint 42 Estimation" })] }), _jsxs("div", { className: "session-create-fields", children: [_jsx("label", { htmlFor: "session-jql", children: "Default JQL (optional)" }), _jsx("input", { id: "session-jql", type: "text", value: createSessionJql, onChange: (event) => setCreateSessionJql(event.target.value), placeholder: `Defaults to project = "${projectKey ?? 'KEY'}"` })] }), _jsx("button", { type: "button", className: "primary", onClick: handleCreateSession, disabled: isCreatingSession, children: isCreatingSession ? 'Creating…' : 'Create session' })] }), sessionActionError && _jsx("p", { className: "error-text", children: sessionActionError }), sessionsError && _jsx("p", { className: "error-text", children: sessionsError }), isLoadingSessions ? (_jsx("p", { children: "Loading sessions\u2026" })) : sessions.length === 0 ? (_jsx("p", { children: "No sessions yet. Create one to get started." })) : (_jsx("div", { className: "session-card-grid", children: sessions.map((session) => (_jsxs("article", { className: "session-card", children: [_jsxs("header", { children: [_jsxs("p", { className: "eyebrow", children: ["Project ", session.projectKey] }), _jsx("h2", { children: session.name })] }), _jsxs("p", { children: ["Deck: ", session.deckType] }), _jsxs("p", { children: ["Created ", new Date(session.createdAt).toLocaleString()] }), _jsx("button", { type: "button", className: "primary", onClick: () => handleOpenSession(session.id), children: "Open session" })] }, session.id))) })), _jsxs("div", { className: "session-create-card", children: [_jsx("h3", { children: "Project configuration" }), configError && _jsx("p", { className: "error-text", children: configError }), _jsxs("div", { className: "session-create-fields", children: [_jsx("label", { htmlFor: "estimate-field-id", children: "Estimate Field ID" }), _jsx("input", { id: "estimate-field-id", type: "text", value: projectConfig?.estimateFieldId ?? '', onChange: (event) => setProjectConfigState((prev) => ({
+                                    ...(prev ?? { projectKey: projectKey ?? '' }),
+                                    estimateFieldId: event.target.value || undefined,
+                                    deckType: prev?.deckType ?? 'fibonacci',
+                                })), placeholder: "customfield_10016" })] }), _jsxs("div", { className: "session-create-fields", children: [_jsx("label", { htmlFor: "default-jql", children: "Default JQL" }), _jsx("input", { id: "default-jql", type: "text", value: projectConfig?.defaultJql ?? '', onChange: (event) => setProjectConfigState((prev) => ({
+                                    ...(prev ?? { projectKey: projectKey ?? '' }),
+                                    defaultJql: event.target.value || undefined,
+                                    deckType: prev?.deckType ?? 'fibonacci',
+                                })), placeholder: `project = "${projectKey ?? 'KEY'}" AND statusCategory != Done` })] }), _jsx("button", { type: "button", className: "primary", onClick: async () => {
+                            if (!projectKey || !projectConfig) {
+                                return;
+                            }
+                            setIsSavingConfig(true);
+                            setConfigError(null);
+                            try {
+                                const saved = await setProjectConfig({
+                                    ...projectConfig,
+                                    projectKey,
+                                    deckType: projectConfig.deckType ?? 'fibonacci',
+                                });
+                                setProjectConfigState(saved);
+                            }
+                            catch (err) {
+                                console.error('Failed to save project config', err);
+                                setConfigError('Unable to save project configuration.');
+                            }
+                            finally {
+                                setIsSavingConfig(false);
+                            }
+                        }, disabled: isSavingConfig || !projectKey || !projectConfig, children: isSavingConfig ? 'Saving…' : 'Save config' })] })] }));
+    return (_jsxs("div", { className: "app-shell", children: [_jsx("header", { className: "app-header", children: _jsxs("div", { children: [_jsx("p", { className: "eyebrow", children: "Jira Planning Poker" }), _jsx("h1", { children: pageTitle })] }) }), _jsxs("main", { className: "app-content", children: [isLoadingContext && _jsx("p", { children: "Loading Jira context\u2026" }), !isLoadingContext && contextError && _jsx("p", { className: "error-text", children: contextError }), !isLoadingContext && !contextError && !activeSession && renderSessionList(), !isLoadingContext && !contextError && activeSession && (_jsx(SessionPage, { data: activeSession, onBack: handleBackToList, onSessionData: handleSessionDataUpdate, viewerAccountId: viewerAccountId, projectConfig: projectConfig }))] })] }));
 }

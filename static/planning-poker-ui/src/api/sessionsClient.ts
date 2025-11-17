@@ -3,6 +3,7 @@ import type {
   DeckType,
   Issue,
   IssueVoteState,
+  ProjectConfig,
   SessionSummary,
   SessionWithParticipants,
 } from '../types/poker';
@@ -52,6 +53,19 @@ export const revealIssue = async (sessionId: string, issueKey: string): Promise<
 
 export const setCurrentIssue = async (sessionId: string, issueKey: string): Promise<SessionWithParticipants> =>
   invoke<SessionWithParticipants>('setCurrentIssue', { sessionId, issueKey });
+
+export const getProjectConfig = async (projectKey: string): Promise<ProjectConfig> =>
+  invoke<ProjectConfig>('getProjectConfig', { projectKey });
+
+export const setProjectConfig = async (config: ProjectConfig): Promise<ProjectConfig> =>
+  invoke<ProjectConfig>('setProjectConfig', config);
+
+export const applyEstimate = async (
+  sessionId: string,
+  issueKey: string,
+  value: string
+): Promise<{ sessionId: string; issueKey: string; value: string }> =>
+  invoke('applyEstimate', { sessionId, issueKey, value });
 
 export const fetchIssuesForProject = async (params: GetIssuesRequest): Promise<Issue[]> => {
   const response = await invoke<Issue[]>('getIssuesForProject', params);

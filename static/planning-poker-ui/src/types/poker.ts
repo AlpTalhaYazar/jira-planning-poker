@@ -43,10 +43,24 @@ export interface SessionSummary {
   deckValues: string[];
   currentIssueKey: string | null;
   jql?: string;
+  projectConfig?: ProjectConfig;
 }
 
 export interface SessionWithParticipants {
   session: SessionSummary;
   participants: Participant[];
   currentIssueState?: IssueVoteState | null;
+}
+
+export interface ProjectConfig {
+  projectKey: string;
+  estimateFieldId?: string;
+  deckType: DeckType;
+  deckValues?: string[];
+  defaultJql?: string;
+}
+
+export interface EstimateField {
+  id: string;
+  name: string;
 }

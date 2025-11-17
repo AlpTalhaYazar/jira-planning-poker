@@ -6,8 +6,10 @@ import {
   joinSession as joinSessionApi,
   leaveSession as leaveSessionApi,
   listSessions,
+  getProjectConfig,
+  setProjectConfig,
 } from './api/sessionsClient';
-import type { SessionSummary, SessionWithParticipants } from './types/poker';
+import type { ProjectConfig, SessionSummary, SessionWithParticipants } from './types/poker';
 
 interface ProjectPageContext {
   accountId?: string;
@@ -36,6 +38,10 @@ export default function App() {
   const [createSessionJql, setCreateSessionJql] = useState('');
   const [isCreatingSession, setIsCreatingSession] = useState(false);
   const [sessionActionError, setSessionActionError] = useState<string | null>(null);
+  const [projectConfig, setProjectConfigState] = useState<ProjectConfig | null>(null);
+  const [isConfigLoaded, setIsConfigLoaded] = useState(false);
+  const [configError, setConfigError] = useState<string | null>(null);
+  const [isSavingConfig, setIsSavingConfig] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -68,6 +74,10 @@ export default function App() {
   const projectName = context?.extension?.project?.name;
   const projectKey = context?.extension?.project?.key;
   const viewerAccountId = context?.accountId;
+  const effectiveDeckValues = projectConfig?.deckValues ?? DEFAULT_FIBONACCI_DECK;
+  const effectiveDeckType = projectConfig?.deckType ?? 'fibonacci';
+  const effectiveDefaultJql =
+    createSessionJql || projectConfig?.defaultJql || (projectKey ? `project = "${projectKey}" AND statusCategory != Done` : '');
 
   const refreshSessions = useCallback(
     async (key: string) => {
@@ -89,8 +99,21 @@ export default function App() {
   useEffect(() => {
     if (projectKey) {
       refreshSessions(projectKey);
+      if (!isConfigLoaded) {
+        (async () => {
+          try {
+            const cfg = await getProjectConfig(projectKey);
+            setProjectConfigState(cfg);
+          } catch (err) {
+            console.error('Failed to load project config', err);
+            setConfigError('Unable to load project configuration.');
+          } finally {
+            setIsConfigLoaded(true);
+          }
+        })();
+      }
     }
-  }, [projectKey, refreshSessions]);
+  }, [projectKey, refreshSessions, isConfigLoaded]);
 
   const handleCreateSession = async () => {
     if (!projectKey) {
@@ -104,9 +127,9 @@ export default function App() {
       const newSession = await createSessionApi({
         projectKey,
         name,
-        deckType: 'fibonacci',
-        deckValues: DEFAULT_FIBONACCI_DECK,
-        jql: createSessionJql.trim() || undefined,
+        deckType: effectiveDeckType,
+        deckValues: effectiveDeckValues,
+        jql: createSessionJql.trim() || projectConfig?.defaultJql || undefined,
       });
       setSessions((prev) => [newSession.session, ...prev.filter((session) => session.id !== newSession.session.id)]);
       setActiveSession(newSession);
@@ -158,6 +181,9 @@ export default function App() {
         <p>
           <strong>Project:</strong> {projectName ?? 'Unknown'} ({projectKey ?? 'n/a'})
         </p>
+        {!projectConfig?.estimateFieldId && (
+          <p className="error-text">Estimate field not configured. Apply-to-Jira will be disabled until you set one.</p>
+        )}
       </div>
       <div className="session-create-card">
         <div className="session-create-fields">
@@ -207,6 +233,69 @@ export default function App() {
           ))}
         </div>
       )}
+      <div className="session-create-card">
+        <h3>Project configuration</h3>
+        {configError && <p className="error-text">{configError}</p>}
+        <div className="session-create-fields">
+          <label htmlFor="estimate-field-id">Estimate Field ID</label>
+          <input
+            id="estimate-field-id"
+            type="text"
+            value={projectConfig?.estimateFieldId ?? ''}
+            onChange={(event) =>
+              setProjectConfigState((prev) => ({
+                ...(prev ?? { projectKey: projectKey ?? '' }),
+                estimateFieldId: event.target.value || undefined,
+                deckType: prev?.deckType ?? 'fibonacci',
+              }))
+            }
+            placeholder="customfield_10016"
+          />
+        </div>
+        <div className="session-create-fields">
+          <label htmlFor="default-jql">Default JQL</label>
+          <input
+            id="default-jql"
+            type="text"
+            value={projectConfig?.defaultJql ?? ''}
+            onChange={(event) =>
+              setProjectConfigState((prev) => ({
+                ...(prev ?? { projectKey: projectKey ?? '' }),
+                defaultJql: event.target.value || undefined,
+                deckType: prev?.deckType ?? 'fibonacci',
+              }))
+            }
+            placeholder={`project = "${projectKey ?? 'KEY'}" AND statusCategory != Done`}
+          />
+        </div>
+        <button
+          type="button"
+          className="primary"
+          onClick={async () => {
+            if (!projectKey || !projectConfig) {
+              return;
+            }
+            setIsSavingConfig(true);
+            setConfigError(null);
+            try {
+              const saved = await setProjectConfig({
+                ...projectConfig,
+                projectKey,
+                deckType: projectConfig.deckType ?? 'fibonacci',
+              });
+              setProjectConfigState(saved);
+            } catch (err) {
+              console.error('Failed to save project config', err);
+              setConfigError('Unable to save project configuration.');
+            } finally {
+              setIsSavingConfig(false);
+            }
+          }}
+          disabled={isSavingConfig || !projectKey || !projectConfig}
+        >
+          {isSavingConfig ? 'Saving…' : 'Save config'}
+        </button>
+      </div>
     </div>
   );
 
@@ -228,6 +317,7 @@ export default function App() {
             onBack={handleBackToList}
             onSessionData={handleSessionDataUpdate}
             viewerAccountId={viewerAccountId}
+            projectConfig={projectConfig}
           />
         )}
       </main>

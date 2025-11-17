@@ -252,6 +252,11 @@ body {
   font-size: 0.85rem;
 }
 
+.success-text {
+  color: #1f845a;
+  font-weight: 600;
+}
+
 .participants-list {
   list-style: none;
   padding: 0;
@@ -341,6 +346,41 @@ body {
 .deck-card.selected {
   background: #ffe8c3;
   box-shadow: inset 0 0 0 2px #ffab00;
+}
+
+.apply-estimate {
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid rgba(9, 30, 66, 0.1);
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.apply-estimate__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.chip {
+  border: 1px solid rgba(9, 30, 66, 0.2);
+  border-radius: 999px;
+  background: #f4f5f7;
+  padding: 0.35rem 0.85rem;
+  cursor: pointer;
+}
+
+.chip--selected {
+  border-color: #0052cc;
+  background: #deebff;
+  color: #0052cc;
+}
+
+.apply-estimate input {
+  border: 1px solid rgba(9, 30, 66, 0.3);
+  border-radius: 0.4rem;
+  padding: 0.5rem 0.75rem;
 }
 
 .results-grid {
