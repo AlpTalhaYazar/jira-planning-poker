@@ -1,5 +1,5 @@
 import { storage } from '@forge/api';
-import type { IssueVoteState, Vote } from '../types/domain';
+import type { IssueVoteState, Vote, IssueVoteSnapshot } from '../types/domain';
 
 const issueStateKey = (sessionId: string, issueKey: string) => `session:${sessionId}:issue:${issueKey}:state`;
 
@@ -59,4 +59,32 @@ export const setIssueRevealState = async (
   state.isRevealed = isRevealed;
   await persistIssueState(sessionId, state);
   return state;
+};
+
+export const toIssueVoteSnapshot = (
+  state: IssueVoteState,
+  viewerAccountId?: string | null,
+  includePrivateVotes = false
+): IssueVoteSnapshot => {
+  const shouldRevealValues = includePrivateVotes || state.isRevealed;
+  const votes = Object.fromEntries(
+    Object.entries(state.votes).map(([accountId, vote]) => {
+      const revealValue = shouldRevealValues || accountId === viewerAccountId;
+      return [
+        accountId,
+        {
+          accountId,
+          hasVoted: true,
+          value: revealValue ? vote.value : undefined,
+          createdAt: revealValue ? vote.createdAt : undefined,
+        },
+      ];
+    })
+  );
+
+  return {
+    issueKey: state.issueKey,
+    isRevealed: state.isRevealed,
+    votes,
+  };
 };

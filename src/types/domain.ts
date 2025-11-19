@@ -46,10 +46,23 @@ export interface IssueVoteState {
   votes: Record<string, Vote>;
 }
 
+export interface PublicVote {
+  accountId: string;
+  hasVoted: boolean;
+  value?: string;
+  createdAt?: string;
+}
+
+export interface IssueVoteSnapshot {
+  issueKey: string;
+  isRevealed: boolean;
+  votes: Record<string, PublicVote>;
+}
+
 export interface SessionSnapshot {
   session: Session;
   participants: Participant[];
-  currentIssueState?: IssueVoteState | null;
+  currentIssueState?: IssueVoteSnapshot | null;
 }
 
 export interface ProjectConfig {

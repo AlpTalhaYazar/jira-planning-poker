@@ -2,7 +2,7 @@ import api, { route, storage } from '@forge/api';
 import { startsWith } from '@forge/storage';
 import { randomUUID } from 'crypto';
 import type { Participant, Session, DeckType, SessionSnapshot } from '../types/domain';
-import { getIssueState } from './votes';
+import { getIssueState, toIssueVoteSnapshot } from './votes';
 
 const sessionKey = (sessionId: string) => `session:${sessionId}`;
 const participantPrefixKey = (sessionId: string) => `session:${sessionId}:participant:`;
@@ -16,6 +16,12 @@ export interface CreateSessionInput {
   deckValues: string[];
   creatorAccountId: string;
   jql?: string;
+}
+
+export interface SessionViewOptions {
+  issueKeyOverride?: string;
+  viewerAccountId?: string | null;
+  includePrivateVotes?: boolean;
 }
 
 export const createSession = async (input: CreateSessionInput): Promise<SessionSnapshot> => {
@@ -50,7 +56,9 @@ export const createSession = async (input: CreateSessionInput): Promise<SessionS
   };
   await saveParticipant(id, creatorParticipant);
 
-  return buildSnapshot(session, [creatorParticipant]);
+  return buildSnapshot(session, [creatorParticipant], {
+    viewerAccountId: creatorParticipant.accountId,
+  });
 };
 
 export const listSessionsByProject = async (projectKey: string): Promise<Session[]> => {
@@ -66,22 +74,29 @@ export const listSessionsByProject = async (projectKey: string): Promise<Session
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 };
 
-export const getSession = async (sessionId: string, issueKeyOverride?: string): Promise<SessionSnapshot | null> => {
+export const getSession = async (
+  sessionId: string,
+  options: SessionViewOptions = {}
+): Promise<SessionSnapshot | null> => {
   const session = (await storage.get(sessionKey(sessionId))) as Session | undefined;
   if (!session) {
     return null;
   }
   const participants = await listParticipants(sessionId);
-  return buildSnapshot(session, participants, issueKeyOverride);
+  return buildSnapshot(session, participants, options);
 };
 
 export const joinSession = async (sessionId: string, issueKeyOverride?: string): Promise<SessionSnapshot> => {
-  const existing = await getSession(sessionId, issueKeyOverride);
+  const profile = await fetchCurrentUserProfile();
+  const viewOptions: SessionViewOptions = {
+    issueKeyOverride,
+    viewerAccountId: profile.accountId,
+  };
+  const existing = await getSession(sessionId, viewOptions);
   if (!existing) {
     throw new Error('Session not found');
   }
 
-  const profile = await fetchCurrentUserProfile();
   const now = new Date().toISOString();
   const participants = [...existing.participants];
   const existingParticipant = participants.find((p) => p.accountId === profile.accountId);
@@ -103,7 +118,7 @@ export const joinSession = async (sessionId: string, issueKeyOverride?: string):
   }
 
   const latestParticipants = await listParticipants(sessionId);
-  return buildSnapshot(existing.session, latestParticipants, issueKeyOverride);
+  return buildSnapshot(existing.session, latestParticipants, viewOptions);
 };
 
 export const leaveSession = async (sessionId: string, accountId: string): Promise<void> => {
@@ -141,7 +156,8 @@ const fetchCurrentUserProfile = async (): Promise<{ accountId: string; displayNa
 
 export const setCurrentIssueKey = async (
   sessionId: string,
-  issueKey: string | null
+  issueKey: string | null,
+  options: SessionViewOptions = {}
 ): Promise<SessionSnapshot> => {
   const session = (await storage.get(sessionKey(sessionId))) as Session | undefined;
   if (!session) {
@@ -150,22 +166,44 @@ export const setCurrentIssueKey = async (
   session.currentIssueKey = issueKey;
   await storage.set(sessionKey(sessionId), session);
   const participants = await listParticipants(sessionId);
-  return buildSnapshot(session, participants, issueKey ?? undefined);
+  return buildSnapshot(session, participants, { ...options, issueKeyOverride: issueKey ?? undefined });
 };
 
 const buildSnapshot = async (
   session: Session,
   participants: Participant[],
-  issueKeyOverride?: string
+  options: SessionViewOptions = {}
 ): Promise<SessionSnapshot> => {
-  const issueKey = issueKeyOverride ?? session.currentIssueKey;
+  const issueKey = resolveIssueKey(session, participants, options);
   const currentIssueState = issueKey ? await getIssueState(session.id, issueKey) : null;
   return {
     session,
     participants,
-    currentIssueState,
+    currentIssueState: currentIssueState
+      ? toIssueVoteSnapshot(currentIssueState, options.viewerAccountId, options.includePrivateVotes)
+      : null,
   };
 };
+
+const resolveIssueKey = (
+  session: Session,
+  participants: Participant[],
+  options: SessionViewOptions
+): string | null => {
+  if (options.issueKeyOverride) {
+    if (options.includePrivateVotes) {
+      return options.issueKeyOverride;
+    }
+    if (options.viewerAccountId) {
+      const viewer = participants.find((participant) => participant.accountId === options.viewerAccountId);
+      if (viewer?.isModerator) {
+        return options.issueKeyOverride;
+      }
+    }
+  }
+  return session.currentIssueKey;
+};
+
 
 const saveParticipant = async (sessionId: string, participant: Participant): Promise<void> => {
   await storage.set(participantKey(sessionId, participant.accountId), participant);

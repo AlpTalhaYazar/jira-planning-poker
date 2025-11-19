@@ -9,7 +9,7 @@ import {
   listSessionsByProject,
   setCurrentIssueKey,
 } from './api/sessions';
-import { recordVote, clearVotes, setIssueRevealState } from './api/votes';
+import { recordVote, clearVotes, setIssueRevealState, toIssueVoteSnapshot } from './api/votes';
 import { getProjectConfig, setProjectConfig } from './api/config';
 import { generateRelayToken, isRelayEnabled, publishRelayEvent } from './api/realtime';
 
@@ -91,10 +91,14 @@ resolver.define('leaveSession', async (req) => {
 
 resolver.define('getSession', async (req) => {
   const { sessionId, issueKey } = req.payload ?? {};
+  const accountId = req.context?.accountId ?? null;
   if (!sessionId) {
     throw new Error('sessionId is required');
   }
-  const session = await getSessionRecord(sessionId, issueKey);
+  const session = await getSessionRecord(sessionId, {
+    issueKeyOverride: issueKey,
+    viewerAccountId: accountId,
+  });
   if (!session) {
     throw new Error('Session not found');
   }
@@ -107,7 +111,7 @@ resolver.define('castVote', async (req) => {
   if (!sessionId || !issueKey || !value || !accountId) {
     throw new Error('sessionId, issueKey, value, and accountId are required');
   }
-  const session = await getSessionRecord(sessionId);
+  const session = await getSessionRecord(sessionId, { viewerAccountId: accountId });
   if (!session) {
     throw new Error('Session not found');
   }
@@ -126,9 +130,9 @@ resolver.define('castVote', async (req) => {
   await publishRelayEvent({
     sessionId,
     event: 'vote.cast',
-    payload: { issueKey, participantId: accountId, value },
+    payload: { issueKey, participantId: accountId },
   });
-  return state;
+  return toIssueVoteSnapshot(state, accountId);
 });
 
 resolver.define('clearVotes', async (req) => {
@@ -139,7 +143,7 @@ resolver.define('clearVotes', async (req) => {
   }
   const state = await clearVotes(sessionId, issueKey);
   await publishRelayEvent({ sessionId, event: 'votes.cleared', payload: { issueKey, actorId: accountId } });
-  return state;
+  return toIssueVoteSnapshot(state, accountId);
 });
 
 resolver.define('revealIssue', async (req) => {
@@ -150,7 +154,7 @@ resolver.define('revealIssue', async (req) => {
   }
   const state = await setIssueRevealState(sessionId, issueKey, true);
   await publishRelayEvent({ sessionId, event: 'issue.revealed', payload: { issueKey, actorId: accountId } });
-  return state;
+  return toIssueVoteSnapshot(state, accountId);
 });
 
 resolver.define('setCurrentIssue', async (req) => {
@@ -159,7 +163,7 @@ resolver.define('setCurrentIssue', async (req) => {
   if (!sessionId || !issueKey || !accountId) {
     throw new Error('sessionId, issueKey, and accountId are required');
   }
-  const snapshot = await getSessionRecord(sessionId);
+  const snapshot = await getSessionRecord(sessionId, { viewerAccountId: accountId });
   if (!snapshot) {
     throw new Error('Session not found');
   }
@@ -168,7 +172,9 @@ resolver.define('setCurrentIssue', async (req) => {
     throw new Error('Only moderators can change the current issue.');
   }
   const previousIssue = snapshot.session.currentIssueKey ?? undefined;
-  const updatedSnapshot = await setCurrentIssueKey(sessionId, issueKey);
+  const updatedSnapshot = await setCurrentIssueKey(sessionId, issueKey, {
+    viewerAccountId: accountId,
+  });
   await publishRelayEvent({
     sessionId,
     event: 'issue.advance',
@@ -209,7 +215,7 @@ resolver.define('applyEstimate', async (req) => {
   if (!sessionId || !issueKey || !value || !accountId) {
     throw new Error('sessionId, issueKey, value, and accountId are required');
   }
-  const snapshot = await getSessionRecord(sessionId);
+  const snapshot = await getSessionRecord(sessionId, { viewerAccountId: accountId });
   if (!snapshot) {
     throw new Error('Session not found');
   }
@@ -238,7 +244,7 @@ resolver.define('getRealtimeToken', async (req) => {
       expiresAt: null,
     };
   }
-  const snapshot = await getSessionRecord(sessionId);
+  const snapshot = await getSessionRecord(sessionId, { viewerAccountId: accountId });
   if (!snapshot) {
     throw new Error('Session not found');
   }

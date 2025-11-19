@@ -20,11 +20,10 @@ export interface Participant {
 }
 
 export interface Vote {
-  sessionId: string;
-  issueKey: string;
   accountId: string;
-  value: string;
-  createdAt: string;
+  hasVoted: boolean;
+  value?: string;
+  createdAt?: string;
 }
 
 export interface IssueVoteState {

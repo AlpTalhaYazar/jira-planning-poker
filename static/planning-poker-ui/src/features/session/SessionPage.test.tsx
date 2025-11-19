@@ -33,7 +33,7 @@ const baseSession: SessionWithParticipants = {
     createdAt: '2025-01-01T00:00:00.000Z',
     status: 'active',
     deckType: 'fibonacci',
-    deckValues: ['1', '2', '3'],
+    deckValues: ['1', '2', '3', '5'],
     currentIssueKey: 'ISSUE-123',
     jql: 'project = "TEST"',
   },
@@ -60,16 +60,14 @@ const baseSession: SessionWithParticipants = {
     isRevealed: false,
     votes: {
       moderator: {
-        sessionId: 'session-1',
-        issueKey: 'ISSUE-123',
         accountId: 'moderator',
+        hasVoted: true,
         value: '3',
         createdAt: '2025-01-01T00:02:00.000Z',
       },
       viewer: {
-        sessionId: 'session-1',
-        issueKey: 'ISSUE-123',
         accountId: 'viewer',
+        hasVoted: true,
         value: '5',
         createdAt: '2025-01-01T00:03:00.000Z',
       },
@@ -80,6 +78,8 @@ const baseSession: SessionWithParticipants = {
 const defaultIssue = [
   { key: 'ISSUE-123', summary: 'Improve onboarding', status: 'To Do', estimate: '3', link: '/browse/ISSUE-123' },
 ];
+
+const defaultIssueState = baseSession.currentIssueState!;
 
 const renderSession = (overrides?: Partial<ComponentProps<typeof SessionPage>>) => {
   const props: ComponentProps<typeof SessionPage> = {
@@ -99,9 +99,9 @@ describe('SessionPage', () => {
     vi.clearAllMocks();
     mockedSessionsClient.fetchIssuesForProject.mockResolvedValue(defaultIssue);
     mockedSessionsClient.getSession.mockResolvedValue(baseSession);
-    mockedSessionsClient.revealIssue.mockResolvedValue(baseSession);
-    mockedSessionsClient.castVote.mockResolvedValue(baseSession);
-    mockedSessionsClient.clearVotes.mockResolvedValue(baseSession);
+    mockedSessionsClient.revealIssue.mockResolvedValue(defaultIssueState);
+    mockedSessionsClient.castVote.mockResolvedValue(defaultIssueState);
+    mockedSessionsClient.clearVotes.mockResolvedValue(defaultIssueState);
     mockedSessionsClient.setCurrentIssue.mockResolvedValue(baseSession);
   });
 
@@ -122,5 +122,32 @@ describe('SessionPage', () => {
       expect(mockedSessionsClient.revealIssue).toHaveBeenCalledWith('session-1', 'ISSUE-123')
     );
     expect(mockedSessionsClient.getSession).toHaveBeenCalled();
+  });
+
+  it('shows local selection while keeping other votes hidden before reveal', async () => {
+    const hiddenData: SessionWithParticipants = {
+      ...baseSession,
+      currentIssueState: {
+        issueKey: 'ISSUE-123',
+        isRevealed: false,
+        votes: {
+          moderator: {
+            accountId: 'moderator',
+            hasVoted: true,
+          },
+          viewer: {
+            accountId: 'viewer',
+            hasVoted: true,
+            value: '5',
+          },
+        },
+      },
+    };
+
+    renderSession({ data: hiddenData, viewerAccountId: 'viewer' });
+    await waitFor(() => expect(mockedSessionsClient.fetchIssuesForProject).toHaveBeenCalled());
+    const selectedCard = await screen.findByRole('button', { name: '5' });
+    expect(selectedCard).toHaveClass('selected');
+    expect(screen.queryByText(/Revealed vote/)).toBeNull();
   });
 });

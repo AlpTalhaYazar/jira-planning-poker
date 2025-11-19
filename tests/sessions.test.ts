@@ -1,7 +1,8 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import api from '@forge/api';
-import { createSession, getSession, joinSession } from '../src/api/sessions';
+import { createSession, getSession, joinSession, setCurrentIssueKey } from '../src/api/sessions';
 import type { CreateSessionInput } from '../src/api/sessions';
+import { recordVote, setIssueRevealState } from '../src/api/votes';
+import type { Vote } from '../src/types/domain';
 import { getForgeTestingApi } from './setup';
 
 const testingApi = getForgeTestingApi();
@@ -53,5 +54,85 @@ describe('session participants storage', () => {
 
     const participantKeys = testingApi.listKeys(`session:${snapshot.session.id}:participant:`);
     expect(participantKeys).toHaveLength(3);
+  });
+});
+
+describe('session vote privacy', () => {
+  beforeEach(() => {
+    testingApi.reset();
+  });
+
+  const baseInput: CreateSessionInput = {
+    projectKey: 'TEST',
+    name: 'Secure Session',
+    deckType: 'fibonacci',
+    deckValues: ['1', '2', '3', '5', '8'],
+    creatorAccountId: 'moderator',
+  };
+
+  const buildVote = (overrides: Partial<Vote> = {}): Vote => ({
+    sessionId: 'session-under-test',
+    issueKey: 'TEST-1',
+    accountId: 'moderator',
+    value: '3',
+    createdAt: new Date().toISOString(),
+    ...overrides,
+  });
+
+  it('redacts votes until reveal and restricts issue overrides to moderators', async () => {
+    testingApi.enqueueMyselfResponse({
+      accountId: 'moderator',
+      displayName: 'Moderator',
+      avatarUrls: { '48x48': 'm.png' },
+    });
+
+    const snapshot = await createSession(baseInput);
+    const sessionId = snapshot.session.id;
+
+    await setCurrentIssueKey(sessionId, 'TEST-1');
+
+    testingApi.enqueueMyselfResponse({
+      accountId: 'user-a',
+      displayName: 'Participant A',
+      avatarUrls: { '48x48': 'a.png' },
+    });
+    await joinSession(sessionId);
+
+    await recordVote(sessionId, buildVote({ sessionId, accountId: 'moderator', value: '3' }));
+    await recordVote(
+      sessionId,
+      buildVote({ sessionId, accountId: 'user-a', value: '5', createdAt: new Date().toISOString() })
+    );
+    await recordVote(
+      sessionId,
+      buildVote({
+        sessionId,
+        issueKey: 'TEST-2',
+        value: '8',
+        createdAt: new Date().toISOString(),
+      })
+    );
+
+    const memberView = await getSession(sessionId, { viewerAccountId: 'user-a' });
+    expect(memberView?.currentIssueState?.issueKey).toBe('TEST-1');
+    expect(memberView?.currentIssueState?.votes['user-a']?.value).toBe('5');
+    expect(memberView?.currentIssueState?.votes['moderator']?.value).toBeUndefined();
+
+    const nonModeratorOverride = await getSession(sessionId, {
+      viewerAccountId: 'user-a',
+      issueKeyOverride: 'TEST-2',
+    });
+    expect(nonModeratorOverride?.currentIssueState?.issueKey).toBe('TEST-1');
+
+    const moderatorOverride = await getSession(sessionId, {
+      viewerAccountId: 'moderator',
+      issueKeyOverride: 'TEST-2',
+    });
+    expect(moderatorOverride?.currentIssueState?.issueKey).toBe('TEST-2');
+    expect(moderatorOverride?.currentIssueState?.votes['moderator']?.value).toBe('8');
+
+    await setIssueRevealState(sessionId, 'TEST-1', true);
+    const afterReveal = await getSession(sessionId, { viewerAccountId: 'user-a' });
+    expect(afterReveal?.currentIssueState?.votes['moderator']?.value).toBe('3');
   });
 });
