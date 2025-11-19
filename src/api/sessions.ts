@@ -1,10 +1,12 @@
 import api, { route, storage } from '@forge/api';
+import { startsWith } from '@forge/storage';
 import { randomUUID } from 'crypto';
 import type { Participant, Session, DeckType, SessionSnapshot } from '../types/domain';
 import { getIssueState } from './votes';
 
 const sessionKey = (sessionId: string) => `session:${sessionId}`;
-const participantsKey = (sessionId: string) => `session:${sessionId}:participants`;
+const participantPrefixKey = (sessionId: string) => `session:${sessionId}:participant:`;
+const participantKey = (sessionId: string, accountId: string) => `${participantPrefixKey(sessionId)}${accountId}`;
 const projectSessionsKey = (projectKey: string) => `project:${projectKey}:sessions`;
 
 export interface CreateSessionInput {
@@ -38,19 +40,17 @@ export const createSession = async (input: CreateSessionInput): Promise<SessionS
   await addSessionToProjectIndex(session.projectKey, session.id);
 
   const creatorProfile = await fetchCurrentUserProfile();
-  const participants: Participant[] = [
-    {
-      accountId: creatorProfile.accountId,
-      displayName: creatorProfile.displayName,
-      avatarUrl: creatorProfile.avatarUrl,
-      joinedAt: createdAt,
-      lastSeenAt: createdAt,
-      isModerator: true,
-    },
-  ];
-  await storage.set(participantsKey(id), participants);
+  const creatorParticipant: Participant = {
+    accountId: creatorProfile.accountId,
+    displayName: creatorProfile.displayName,
+    avatarUrl: creatorProfile.avatarUrl,
+    joinedAt: createdAt,
+    lastSeenAt: createdAt,
+    isModerator: true,
+  };
+  await saveParticipant(id, creatorParticipant);
 
-  return buildSnapshot(session, participants);
+  return buildSnapshot(session, [creatorParticipant]);
 };
 
 export const listSessionsByProject = async (projectKey: string): Promise<Session[]> => {
@@ -71,7 +71,7 @@ export const getSession = async (sessionId: string, issueKeyOverride?: string): 
   if (!session) {
     return null;
   }
-  const participants = ((await storage.get(participantsKey(sessionId))) as Participant[]) ?? [];
+  const participants = await listParticipants(sessionId);
   return buildSnapshot(session, participants, issueKeyOverride);
 };
 
@@ -88,26 +88,26 @@ export const joinSession = async (sessionId: string, issueKeyOverride?: string):
 
   if (existingParticipant) {
     existingParticipant.lastSeenAt = now;
+    await saveParticipant(sessionId, existingParticipant);
   } else {
-    participants.push({
+    const newParticipant: Participant = {
       accountId: profile.accountId,
       displayName: profile.displayName,
       avatarUrl: profile.avatarUrl,
       joinedAt: now,
       lastSeenAt: now,
       isModerator: false,
-    });
+    };
+    participants.push(newParticipant);
+    await saveParticipant(sessionId, newParticipant);
   }
 
-  await storage.set(participantsKey(sessionId), participants);
-
-  return buildSnapshot(existing.session, participants, issueKeyOverride);
+  const latestParticipants = await listParticipants(sessionId);
+  return buildSnapshot(existing.session, latestParticipants, issueKeyOverride);
 };
 
 export const leaveSession = async (sessionId: string, accountId: string): Promise<void> => {
-  const participants = ((await storage.get(participantsKey(sessionId))) as Participant[]) ?? [];
-  const next = participants.filter((participant) => participant.accountId !== accountId);
-  await storage.set(participantsKey(sessionId), next);
+  await deleteParticipant(sessionId, accountId);
 };
 
 const addSessionToProjectIndex = async (projectKey: string, sessionId: string): Promise<void> => {
@@ -149,7 +149,7 @@ export const setCurrentIssueKey = async (
   }
   session.currentIssueKey = issueKey;
   await storage.set(sessionKey(sessionId), session);
-  const participants = ((await storage.get(participantsKey(sessionId))) as Participant[]) ?? [];
+  const participants = await listParticipants(sessionId);
   return buildSnapshot(session, participants, issueKey ?? undefined);
 };
 
@@ -165,4 +165,29 @@ const buildSnapshot = async (
     participants,
     currentIssueState,
   };
+};
+
+const saveParticipant = async (sessionId: string, participant: Participant): Promise<void> => {
+  await storage.set(participantKey(sessionId, participant.accountId), participant);
+};
+
+const deleteParticipant = async (sessionId: string, accountId: string): Promise<void> => {
+  await storage.delete(participantKey(sessionId, accountId));
+};
+
+const listParticipants = async (sessionId: string): Promise<Participant[]> => {
+  const prefix = participantPrefixKey(sessionId);
+  const participants: Participant[] = [];
+  let cursor: string | undefined;
+  do {
+    let query = storage.query().where('key', startsWith(prefix)).limit(50);
+    if (cursor) {
+      query = query.cursor(cursor);
+    }
+    const { results, nextCursor } = await query.getMany();
+    participants.push(...results.map((record) => record.value as Participant));
+    cursor = nextCursor;
+  } while (cursor);
+
+  return participants.sort((a, b) => a.joinedAt.localeCompare(b.joinedAt));
 };

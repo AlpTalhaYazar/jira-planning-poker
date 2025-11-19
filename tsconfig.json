@@ -11,6 +11,6 @@
     "outDir": "dist",
     "types": ["@forge/api", "node"]
   },
-  "include": ["src"],
+  "include": ["src", "tests"],
   "exclude": ["node_modules", "static"]
 }
