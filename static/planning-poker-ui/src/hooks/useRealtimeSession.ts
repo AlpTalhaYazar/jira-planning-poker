@@ -76,22 +76,21 @@ export function useRealtimeSession({ sessionId, onSessionEvent, onSocketEvent, o
                     setStatus('error');
                 });
 
-                // Handle specific session events
-                socket.on('session:event', (message: { sessionId?: string; payload?: unknown; event?: string }) => {
-                    console.log('[Realtime] session event received', message);
-                    onSessionEvent(message || { sessionId, event: 'session:event' });
-                    onSocketEvent?.('session:event', message);
-                });
-
-                // Handle any other events (like session.joined, vote.cast) that might be emitted directly
+                // Handle session events and other broadcast events from the relay
                 socket.onAny((eventName, payload) => {
-                    if (eventName === 'session:event' || eventName === 'connect' || eventName === 'disconnect') {
+                    if (eventName === 'connect' || eventName === 'disconnect' || eventName === 'connect_error') {
                         return;
                     }
-                    console.log('[Realtime] event received', eventName, payload);
-                    // Always trigger refresh for the current session regardless of payload structure
-                    // because the socket is subscribed to this session's room
-                    onSessionEvent({ sessionId, event: eventName, payload });
+                    if (eventName === 'session:event') {
+                        const message =
+                            (payload as { sessionId?: string; event?: string; payload?: unknown }) ??
+                            { sessionId, event: 'session:event' };
+                        console.log('[Realtime] session event received', message);
+                        onSessionEvent(message || { sessionId, event: 'session:event' });
+                    } else {
+                        console.log('[Realtime] event received', eventName, payload);
+                        onSessionEvent({ sessionId, event: eventName, payload });
+                    }
                     onSocketEvent?.(eventName, payload);
                 });
 

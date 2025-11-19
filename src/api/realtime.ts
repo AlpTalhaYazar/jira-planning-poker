@@ -9,6 +9,8 @@ const relayBaseUrl = () => process.env.RELAY_BASE_URL?.replace(/\/$/, '') || DEF
 
 const relayApiKey = process.env.RELAY_API_KEY;
 const relayJwtSecret = process.env.RELAY_JWT_SECRET;
+let relayConfigChecked = false;
+let relayConfigValid = false;
 
 export interface RelayEvent {
   sessionId: string;
@@ -17,10 +19,29 @@ export interface RelayEvent {
   timestamp?: string;
 }
 
-export const isRelayEnabled = () => Boolean(relayApiKey && relayJwtSecret);
+const validateRelayConfig = () => {
+  if (relayConfigChecked) {
+    return relayConfigValid;
+  }
+  relayConfigChecked = true;
+  const missing: string[] = [];
+  if (!relayApiKey) {
+    missing.push('RELAY_API_KEY');
+  }
+  if (!relayJwtSecret) {
+    missing.push('RELAY_JWT_SECRET');
+  }
+  relayConfigValid = missing.length === 0;
+  if (!relayConfigValid) {
+    console.warn(`[Realtime] Missing required realtime configuration: ${missing.join(', ')}. Relay features disabled.`);
+  }
+  return relayConfigValid;
+};
+
+export const isRelayEnabled = () => validateRelayConfig();
 
 export const generateRelayToken = (sessionId: string, accountId: string) => {
-  if (!relayJwtSecret) {
+  if (!validateRelayConfig() || !relayJwtSecret) {
     throw new Error('Realtime relay is not configured');
   }
   const expiresIn = TOKEN_TTL_SECONDS;
@@ -45,7 +66,7 @@ export const generateRelayToken = (sessionId: string, accountId: string) => {
 };
 
 export const publishRelayEvent = async (event: RelayEvent) => {
-  if (!relayApiKey) {
+  if (!validateRelayConfig() || !relayApiKey) {
     return;
   }
   try {
