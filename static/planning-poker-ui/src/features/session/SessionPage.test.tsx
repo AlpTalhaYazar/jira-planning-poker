@@ -1,0 +1,126 @@
+import type { ComponentProps } from 'react';
+import { render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { vi } from 'vitest';
+import SessionPage from './SessionPage';
+import type { SessionWithParticipants } from '../../types/poker';
+
+vi.mock('../../hooks/useRealtimeSession', () => ({
+  useRealtimeSession: () => ({ status: 'connected' }),
+}));
+
+vi.mock('../../api/sessionsClient', () => {
+  const mock = {
+    applyEstimate: vi.fn(),
+    castVote: vi.fn(),
+    clearVotes: vi.fn(),
+    fetchIssuesForProject: vi.fn(),
+    getSession: vi.fn(),
+    revealIssue: vi.fn(),
+    setCurrentIssue: vi.fn(),
+  };
+  return mock;
+});
+
+import * as sessionsClient from '../../api/sessionsClient';
+const mockedSessionsClient = vi.mocked(sessionsClient, { deep: true });
+
+const baseSession: SessionWithParticipants = {
+  session: {
+    id: 'session-1',
+    name: 'Demo Session',
+    projectKey: 'TEST',
+    createdAt: '2025-01-01T00:00:00.000Z',
+    status: 'active',
+    deckType: 'fibonacci',
+    deckValues: ['1', '2', '3'],
+    currentIssueKey: 'ISSUE-123',
+    jql: 'project = "TEST"',
+  },
+  participants: [
+    {
+      accountId: 'moderator',
+      displayName: 'Moderator',
+      avatarUrl: '',
+      joinedAt: '2025-01-01T00:00:00.000Z',
+      lastSeenAt: '2025-01-01T00:00:00.000Z',
+      isModerator: true,
+    },
+    {
+      accountId: 'viewer',
+      displayName: 'Viewer',
+      avatarUrl: '',
+      joinedAt: '2025-01-01T00:01:00.000Z',
+      lastSeenAt: '2025-01-01T00:01:00.000Z',
+      isModerator: false,
+    },
+  ],
+  currentIssueState: {
+    issueKey: 'ISSUE-123',
+    isRevealed: false,
+    votes: {
+      moderator: {
+        sessionId: 'session-1',
+        issueKey: 'ISSUE-123',
+        accountId: 'moderator',
+        value: '3',
+        createdAt: '2025-01-01T00:02:00.000Z',
+      },
+      viewer: {
+        sessionId: 'session-1',
+        issueKey: 'ISSUE-123',
+        accountId: 'viewer',
+        value: '5',
+        createdAt: '2025-01-01T00:03:00.000Z',
+      },
+    },
+  },
+};
+
+const defaultIssue = [
+  { key: 'ISSUE-123', summary: 'Improve onboarding', status: 'To Do', estimate: '3', link: '/browse/ISSUE-123' },
+];
+
+const renderSession = (overrides?: Partial<ComponentProps<typeof SessionPage>>) => {
+  const props: ComponentProps<typeof SessionPage> = {
+    data: baseSession,
+    onBack: vi.fn(),
+    onSessionData: vi.fn(),
+    viewerAccountId: 'viewer',
+    projectConfig: null,
+    onDebugEvent: vi.fn(),
+    ...overrides,
+  };
+  return render(<SessionPage {...props} />);
+};
+
+describe('SessionPage', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockedSessionsClient.fetchIssuesForProject.mockResolvedValue(defaultIssue);
+    mockedSessionsClient.getSession.mockResolvedValue(baseSession);
+    mockedSessionsClient.revealIssue.mockResolvedValue(baseSession);
+    mockedSessionsClient.castVote.mockResolvedValue(baseSession);
+    mockedSessionsClient.clearVotes.mockResolvedValue(baseSession);
+    mockedSessionsClient.setCurrentIssue.mockResolvedValue(baseSession);
+  });
+
+  it('disables reveal action for non-moderators', async () => {
+    renderSession({ viewerAccountId: 'viewer' });
+    const revealButton = await screen.findByRole('button', { name: /reveal votes/i });
+    expect(revealButton).toBeDisabled();
+    await waitFor(() => expect(mockedSessionsClient.fetchIssuesForProject).toHaveBeenCalled());
+  });
+
+  it('invokes reveal action when moderator clicks reveal', async () => {
+    const user = userEvent.setup();
+    renderSession({ viewerAccountId: 'moderator' });
+    const revealButton = await screen.findByRole('button', { name: /reveal votes/i });
+    expect(revealButton).toBeEnabled();
+    await user.click(revealButton);
+    await waitFor(() =>
+      expect(mockedSessionsClient.revealIssue).toHaveBeenCalledWith('session-1', 'ISSUE-123')
+    );
+    expect(mockedSessionsClient.getSession).toHaveBeenCalled();
+  });
+});

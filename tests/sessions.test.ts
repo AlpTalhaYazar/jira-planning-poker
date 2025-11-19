@@ -1,13 +1,10 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { createForgeApiMock } from './helpers/forge-api-mock';
-
-vi.mock('@forge/api', () => createForgeApiMock());
-
+import { beforeEach, describe, expect, it } from 'vitest';
 import api from '@forge/api';
 import { createSession, getSession, joinSession } from '../src/api/sessions';
 import type { CreateSessionInput } from '../src/api/sessions';
+import { getForgeTestingApi } from './setup';
 
-const testingApi = (api as typeof api & { __testing: any }).__testing;
+const testingApi = getForgeTestingApi();
 
 describe('session participants storage', () => {
   beforeEach(() => {

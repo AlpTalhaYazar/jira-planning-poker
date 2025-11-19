@@ -4,7 +4,9 @@
   "private": true,
   "scripts": {
     "build": "forge deploy --verbose",
-    "test": "vitest run",
+    "test": "npm run test:backend && npm run test:frontend",
+    "test:backend": "vitest run",
+    "test:frontend": "npm --prefix static/planning-poker-ui run test",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit"
   },

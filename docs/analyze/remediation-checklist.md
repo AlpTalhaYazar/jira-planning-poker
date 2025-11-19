@@ -5,7 +5,7 @@ Tracking every finding from `docs/analyze/audit-report.md`. Items will be checke
 ## Critical
 
 - [x] Race condition in `joinSession` (per-participant storage / locking)
-- [ ] Missing automated tests across repo (backend + frontend)
+- [x] Missing automated tests across repo (backend + frontend)
 - [ ] Hidden votes exposed before reveal (redact vote payloads, restrict `issueKey` overrides)
 
 ## High
