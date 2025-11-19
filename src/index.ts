@@ -15,6 +15,7 @@ import { getProjectConfig, setProjectConfig } from './api/config';
 import { generateRelayToken, isRelayEnabled, publishRelayEvent } from './api/realtime';
 import { assertProjectContext, getContextProjectKey } from './utils/context';
 import { canEditProjectConfig, requireProjectAdmin } from './services/projectPermissions';
+import { logger } from './utils/logger';
 
 const resolver = new Resolver();
 const ensureSessionInContext = (req: any, projectKey: string): string => {
@@ -309,7 +310,7 @@ resolver.define('getRealtimeToken', async (req) => {
     throw new Error('sessionId and accountId are required');
   }
   if (!isRelayEnabled()) {
-    console.log('[Realtime] Relay not configured, returning null token');
+    logger.info('[Realtime] Relay not configured, returning null token');
     return {
       token: null,
       relayUrl: null,
@@ -329,7 +330,7 @@ resolver.define('getRealtimeToken', async (req) => {
     throw new Error('You must join the session before requesting a realtime token.');
   }
   const token = generateRelayToken(sessionId, accountId);
-  console.log('[Realtime] Issued token', {
+  logger.info('[Realtime] Issued token', {
     sessionId,
     accountId,
     relayUrl: token.relayUrl,

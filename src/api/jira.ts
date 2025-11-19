@@ -11,6 +11,7 @@ interface GetIssuesParams {
 interface JiraSearchResponse {
   issues: Array<{
     key: string;
+    self?: string;
     fields: {
       summary?: string;
       status?: {
@@ -71,6 +72,7 @@ export const getIssuesForProject = async ({
     summary: issue.fields.summary ?? 'No summary',
     status: issue.fields.status?.name ?? 'Unknown',
     estimate: extractEstimate(issue.fields, estimateFieldId),
+    link: buildIssueLink(issue),
   }));
 };
 
@@ -85,6 +87,18 @@ const extractEstimate = (fields: Record<string, unknown>, preferredFieldId?: str
     }
   }
   return undefined;
+};
+
+const buildIssueLink = (issue: { key: string; self?: string }): string | undefined => {
+  if (!issue.self) {
+    return undefined;
+  }
+  try {
+    const url = new URL(issue.self);
+    return `${url.origin}/browse/${issue.key}`;
+  } catch {
+    return undefined;
+  }
 };
 
 export const applyEstimate = async ({ sessionId, issueKey, value }: ApplyEstimateInput, fieldId: string) => {

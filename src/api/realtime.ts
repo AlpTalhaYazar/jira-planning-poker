@@ -1,6 +1,7 @@
 import api from '@forge/api';
 import { randomUUID } from 'crypto';
 import jwt from 'jsonwebtoken';
+import { logger } from '../utils/logger';
 
 const TOKEN_TTL_SECONDS = Number(process.env.RELAY_TOKEN_TTL ?? 300);
 
@@ -39,7 +40,7 @@ const validateRelayConfig = () => {
   }
   relayConfigValid = missing.length === 0;
   if (!relayConfigValid) {
-    console.warn(`[Realtime] Missing required realtime configuration: ${missing.join(', ')}. Relay features disabled.`);
+    logger.warn(`[Realtime] Missing required realtime configuration: ${missing.join(', ')}. Relay features disabled.`);
   }
   return relayConfigValid;
 };
@@ -97,9 +98,9 @@ export const publishRelayEvent = async (event: RelayEvent) => {
     });
     if (!response.ok) {
       const text = await response.text();
-      console.warn(`Failed to publish relay event (${response.status}): ${text}`);
+    logger.warn(`Failed to publish relay event (${response.status}): ${text}`);
     }
   } catch (err) {
-    console.warn('Failed to reach relay service', err);
+    logger.warn('Failed to reach relay service', err);
   }
 };

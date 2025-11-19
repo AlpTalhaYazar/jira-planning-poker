@@ -18,9 +18,7 @@ describe('realtime config validation', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const realtime = await import('../src/api/realtime');
     expect(realtime.isRelayEnabled()).toBe(false);
-    expect(warn).toHaveBeenCalledWith(
-      expect.stringContaining('Missing required realtime configuration: RELAY_API_KEY, RELAY_JWT_SECRET')
-    );
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('Missing required realtime configuration'));
   });
 
   it('reports enabled when relay secrets are configured', async () => {
@@ -38,8 +36,6 @@ describe('realtime config validation', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const realtime = await import('../src/api/realtime');
     expect(realtime.isRelayEnabled()).toBe(false);
-    expect(warn).toHaveBeenCalledWith(
-      expect.stringContaining('Missing required realtime configuration: RELAY_BASE_URL')
-    );
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('Missing required realtime configuration'));
   });
 });

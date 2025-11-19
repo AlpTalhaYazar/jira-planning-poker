@@ -2,6 +2,8 @@ import api, { route, storage } from '@forge/api';
 import { startsWith } from '@forge/storage';
 import { randomUUID } from 'crypto';
 import type { Participant, Session, DeckType, SessionSnapshot, SessionStatus } from '../types/domain';
+import { logger } from '../utils/logger';
+import { isParticipant, isSession, isStringArray } from '../utils/type-guards';
 import { getIssueState, toIssueVoteSnapshot } from './votes';
 
 const sessionKey = (sessionId: string) => `session:${sessionId}`;
@@ -85,7 +87,7 @@ export const getSession = async (
   sessionId: string,
   options: SessionViewOptions = {}
 ): Promise<SessionSnapshot | null> => {
-  const session = (await storage.get(sessionKey(sessionId))) as Session | undefined;
+  const session = await readSessionRecord(sessionId);
   if (!session) {
     return null;
   }
@@ -165,7 +167,7 @@ export const setCurrentIssueKey = async (
   issueKey: string | null,
   options: SessionViewOptions = {}
 ): Promise<SessionSnapshot> => {
-  const session = (await storage.get(sessionKey(sessionId))) as Session | undefined;
+  const session = await readSessionRecord(sessionId);
   if (!session) {
     throw new Error('Session not found');
   }
@@ -230,7 +232,13 @@ const listParticipants = async (sessionId: string): Promise<Participant[]> => {
       query = query.cursor(cursor);
     }
     const { results, nextCursor } = await query.getMany();
-    participants.push(...results.map((record) => record.value as Participant));
+    for (const record of results) {
+      if (isParticipant(record.value)) {
+        participants.push(record.value);
+      } else {
+        logger.warn('Skipping malformed participant record', { sessionId, key: record.key });
+      }
+    }
     cursor = nextCursor;
   } while (cursor);
 
@@ -259,7 +267,11 @@ const isSessionListEntry = (value: unknown): value is SessionListEntry => {
     typeof entry.name === 'string' &&
     typeof entry.projectKey === 'string' &&
     typeof entry.createdAt === 'string' &&
-    typeof entry.deckType === 'string'
+    typeof entry.deckType === 'string' &&
+    typeof entry.status === 'string' &&
+    isStringArray(entry.deckValues) &&
+    (typeof entry.currentIssueKey === 'string' || entry.currentIssueKey === null) &&
+    (entry.jql === undefined || typeof entry.jql === 'string')
   );
 };
 
@@ -267,7 +279,11 @@ const loadProjectSessionEntries = async (
   projectKey: string
 ): Promise<{ entries: SessionListEntry[]; hadLegacyEntries: boolean }> => {
   const key = projectSessionsKey(projectKey);
-  const rawEntries = ((await storage.get(key)) as unknown[]) ?? [];
+  const storedValue = await storage.get(key);
+  const rawEntries = Array.isArray(storedValue) ? storedValue : [];
+  if (storedValue && !Array.isArray(storedValue)) {
+    logger.warn('Ignoring malformed session index payload', { projectKey });
+  }
   let hadLegacyEntries = false;
   const entries: SessionListEntry[] = [];
 
@@ -281,9 +297,11 @@ const loadProjectSessionEntries = async (
 
     hadLegacyEntries = true;
     if (typeof entry === 'string') {
-      const session = (await storage.get(sessionKey(entry))) as Session | undefined;
+      const session = await readSessionRecord(entry);
       if (session && session.projectKey === projectKey) {
         entries.push(toSessionListEntry(session));
+      } else if (!session) {
+        logger.warn('Failed to hydrate legacy session entry', { sessionId: entry, projectKey });
       }
     }
   }
@@ -296,7 +314,7 @@ export const updateSessionBacklog = async (
   issueKeys: string[],
   jql?: string | null
 ): Promise<Session> => {
-  const session = (await storage.get(sessionKey(sessionId))) as Session | undefined;
+  const session = await readSessionRecord(sessionId);
   if (!session) {
     throw new Error('Session not found');
   }
@@ -307,4 +325,16 @@ export const updateSessionBacklog = async (
   await storage.set(sessionKey(sessionId), session);
   await addSessionToProjectIndex(session);
   return session;
+};
+
+const readSessionRecord = async (sessionId: string): Promise<Session | null> => {
+  const stored = await storage.get(sessionKey(sessionId));
+  if (!stored) {
+    return null;
+  }
+  if (!isSession(stored)) {
+    logger.warn('Skipping malformed session record', { sessionId });
+    return null;
+  }
+  return stored;
 };

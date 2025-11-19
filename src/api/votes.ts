@@ -1,5 +1,6 @@
 import { storage } from '@forge/api';
 import type { IssueVoteState, Vote, IssueVoteSnapshot } from '../types/domain';
+import { logger } from '../utils/logger';
 
 const issueStateKey = (sessionId: string, issueKey: string) => `session:${sessionId}:issue:${issueKey}:state`;
 
@@ -8,6 +9,14 @@ interface IssueStateRecord {
   votes: Record<string, Vote>;
 }
 
+const isIssueStateRecord = (value: unknown): value is IssueStateRecord => {
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
+  const record = value as Partial<IssueStateRecord>;
+  return typeof record.isRevealed === 'boolean' && typeof record.votes === 'object' && record.votes !== null;
+};
+
 const defaultState = (issueKey: string): IssueVoteState => ({
   issueKey,
   isRevealed: false,
@@ -15,8 +24,12 @@ const defaultState = (issueKey: string): IssueVoteState => ({
 });
 
 export const getIssueState = async (sessionId: string, issueKey: string): Promise<IssueVoteState> => {
-  const stored = (await storage.get(issueStateKey(sessionId, issueKey))) as IssueStateRecord | undefined;
+  const stored = await storage.get(issueStateKey(sessionId, issueKey));
   if (!stored) {
+    return defaultState(issueKey);
+  }
+  if (!isIssueStateRecord(stored)) {
+    logger.warn('Ignoring malformed issue vote state', { sessionId, issueKey });
     return defaultState(issueKey);
   }
   return {

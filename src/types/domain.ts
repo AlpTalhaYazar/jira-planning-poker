@@ -21,6 +21,7 @@ export interface Issue {
   summary: string;
   status: string;
   estimate?: string;
+  link?: string;
 }
 
 export interface Participant {
