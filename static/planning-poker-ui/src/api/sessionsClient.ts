@@ -4,6 +4,7 @@ import type {
   Issue,
   IssueVoteState,
   ProjectConfig,
+  RealtimeTokenResponse,
   SessionSummary,
   SessionWithParticipants,
 } from '../types/poker';
@@ -71,3 +72,6 @@ export const fetchIssuesForProject = async (params: GetIssuesRequest): Promise<I
   const response = await invoke<Issue[]>('getIssuesForProject', params);
   return response;
 };
+
+export const getRealtimeToken = async (sessionId: string): Promise<RealtimeTokenResponse> =>
+  invoke<RealtimeTokenResponse>('getRealtimeToken', { sessionId });

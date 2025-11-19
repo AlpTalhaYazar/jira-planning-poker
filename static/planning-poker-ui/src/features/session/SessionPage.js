@@ -3,7 +3,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Deck from '../voting/Deck';
 import IssuePanel from '../../components/IssuePanel';
 import ParticipantsList from '../../components/ParticipantsList';
+import { useRealtimeSession } from '../../hooks/useRealtimeSession';
 import { applyEstimate as applyEstimateRequest, castVote as castVoteRequest, clearVotes as clearVotesRequest, fetchIssuesForProject, getSession as fetchSessionDetails, revealIssue as revealIssueRequest, setCurrentIssue as setCurrentIssueRequest, } from '../../api/sessionsClient';
+import { POLLING_INTERVAL_MS } from '../../constants/realtime';
 const numericValue = (value) => {
     if (!value)
         return null;
@@ -30,7 +32,7 @@ const summarizeVotes = (votes) => {
     };
 };
 const defaultJqlForSession = (session) => session.jql ?? (session.projectKey ? `project = "${session.projectKey}" ORDER BY updated DESC` : '');
-export default function SessionPage({ data, onBack, onSessionData, viewerAccountId, projectConfig }) {
+export default function SessionPage({ data, onBack, onSessionData, viewerAccountId, projectConfig, onDebugEvent }) {
     const session = data.session;
     const participants = data.participants;
     const viewerParticipant = viewerAccountId
@@ -127,6 +129,7 @@ export default function SessionPage({ data, onBack, onSessionData, viewerAccount
             setCurrentIssueIndex(0);
             const firstKey = issues[0]?.key;
             if (viewerIsModerator && firstKey) {
+                logOutgoing('setCurrentIssue', { sessionId: session.id, issueKey: firstKey });
                 setCurrentIssueRequest(session.id, firstKey)
                     .then((snapshot) => onSessionData(snapshot))
                     .catch((err) => {
@@ -136,12 +139,36 @@ export default function SessionPage({ data, onBack, onSessionData, viewerAccount
             }
         }
     }, [issues, session.currentIssueKey, currentIssueIndex, viewerIsModerator, session.id, onSessionData]);
+    const handleSessionEvent = useCallback((message) => {
+        if (message?.sessionId === session.id) {
+            refreshSession();
+        }
+    }, [session.id, refreshSession]);
+    const logDebug = useCallback((direction, eventName, payload) => {
+        onDebugEvent({ direction, event: eventName, payload });
+    }, [onDebugEvent]);
+    const logOutgoing = useCallback((eventName, payload) => {
+        logDebug('outgoing', eventName, payload);
+    }, [logDebug]);
+    const captureSessionEvent = useCallback((message) => {
+        logDebug('incoming', message.event ?? 'session:event', message.payload ?? message);
+        handleSessionEvent(message);
+    }, [handleSessionEvent, logDebug]);
+    const { status: realtimeStatus } = useRealtimeSession({
+        sessionId: session.id,
+        onSessionEvent: captureSessionEvent,
+        onSocketEvent: (eventName, payload) => logDebug('incoming', eventName, payload),
+        onToken: (tokenResponse) => logDebug('incoming', 'token', tokenResponse),
+    });
     useEffect(() => {
+        if (realtimeStatus !== 'disabled' && realtimeStatus !== 'error') {
+            return;
+        }
         const interval = setInterval(() => {
             refreshSession();
-        }, 4000);
+        }, POLLING_INTERVAL_MS);
         return () => clearInterval(interval);
-    }, [refreshSession]);
+    }, [realtimeStatus, refreshSession]);
     const localParticipantId = (viewerAccountId && participants.some((p) => p.accountId === viewerAccountId) && viewerAccountId) ||
         participants[0]?.accountId ||
         null;
@@ -201,6 +228,7 @@ export default function SessionPage({ data, onBack, onSessionData, viewerAccount
     const handleCardSelect = (value) => {
         if (!localParticipantId || !currentIssue || isRevealed || isSubmittingAction)
             return;
+        logOutgoing('castVote', { sessionId: session.id, issueKey: currentIssue.key, value });
         runAction(() => castVoteRequest(session.id, currentIssue.key, value), 'Unable to submit your vote. Please try again.', false);
     };
     const handleReveal = () => {
@@ -208,6 +236,7 @@ export default function SessionPage({ data, onBack, onSessionData, viewerAccount
             return;
         if (!ensureModerator())
             return;
+        logOutgoing('revealIssue', { sessionId: session.id, issueKey: currentIssue.key });
         runAction(() => revealIssueRequest(session.id, currentIssue.key), 'Unable to reveal votes right now.');
     };
     const handleRevote = () => {
@@ -215,6 +244,7 @@ export default function SessionPage({ data, onBack, onSessionData, viewerAccount
             return;
         if (!ensureModerator())
             return;
+        logOutgoing('clearVotes', { sessionId: session.id, issueKey: currentIssue.key });
         runAction(() => clearVotesRequest(session.id, currentIssue.key), 'Unable to reset votes.');
         setApplyValue('');
         setApplyMessage(null);
@@ -235,6 +265,7 @@ export default function SessionPage({ data, onBack, onSessionData, viewerAccount
         setIsSubmittingAction(true);
         setApplyValue('');
         setApplyMessage(null);
+        logOutgoing('setCurrentIssue', { sessionId: session.id, issueKey: targetIssue.key });
         setCurrentIssueRequest(session.id, targetIssue.key)
             .then((snapshot) => {
             onSessionData(snapshot);
@@ -259,7 +290,11 @@ export default function SessionPage({ data, onBack, onSessionData, viewerAccount
     const everyoneHasVoted = currentIssue &&
         participants.length > 0 &&
         participants.every((participant) => Boolean(currentVotes[participant.accountId]));
-    return (_jsxs("div", { className: "session-layout", children: [_jsxs("div", { className: "session-top-bar", children: [_jsx("button", { className: "text-button", type: "button", onClick: onBack, children: "\u2190 Sessions" }), _jsx("span", { className: "session-name", children: session.name })] }), _jsxs("div", { className: "filters-bar", children: [_jsx("label", { htmlFor: "jql-input", children: "JQL Filter" }), _jsx("input", { id: "jql-input", type: "text", value: jqlDraft, onChange: (event) => setJqlDraft(event.target.value), placeholder: 'e.g. project = "SCRUM" AND statusCategory != Done ORDER BY updated DESC' }), _jsx("button", { className: "secondary", type: "button", onClick: handleApplyJql, disabled: isFetchingIssues, children: isFetchingIssues ? 'Updating…' : 'Update list' })] }), _jsxs("p", { className: "meta-text", children: ["Current query: ", appliedJql || 'None (default project filter)'] }), actionError && _jsx("p", { className: "error-text", children: actionError }), issuesError && _jsx("p", { className: "error-text", children: issuesError }), _jsx(IssuePanel, { issue: currentIssue, index: currentIssueIndex, total: issues.length, onPrevious: handlePrevIssue, onNext: handleNextIssue, onReveal: handleReveal, onResetVotes: handleRevote, onAdvanceIssue: handleAdvance, isRevealed: isRevealed, disableReveal: !everyoneHasVoted || isSubmittingAction, disableNext: currentIssueIndex === issues.length - 1, isLoading: isFetchingIssues, canControl: viewerIsModerator, isBusy: isSubmittingAction }), currentIssue ? (_jsxs("div", { className: "session-grid", children: [_jsx(ParticipantsList, { participants: participants, votes: currentVotes, isRevealed: isRevealed }), _jsxs("div", { className: "session-side", children: [_jsx(Deck, { values: session.deckValues, selectedValue: localParticipantId ? currentVotes[localParticipantId]?.value ?? null : null, onSelect: handleCardSelect, disabled: isRevealed || isSubmittingAction, isRevealed: isRevealed }), isRevealed && (_jsxs("section", { className: "results-panel", children: [_jsxs("header", { className: "panel-heading", children: [_jsx("h3", { children: "Vote results" }), _jsx("span", { className: "meta-text", children: "Visible to everyone" })] }), _jsxs("dl", { className: "results-grid", children: [_jsxs("div", { children: [_jsx("dt", { children: "Average" }), _jsx("dd", { children: stats.average })] }), _jsxs("div", { children: [_jsx("dt", { children: "Median" }), _jsx("dd", { children: stats.median })] }), _jsxs("div", { children: [_jsx("dt", { children: "Min" }), _jsx("dd", { children: stats.min })] }), _jsxs("div", { children: [_jsx("dt", { children: "Max" }), _jsx("dd", { children: stats.max })] })] }), viewerIsModerator && (_jsxs("div", { className: "apply-estimate", children: [_jsxs("header", { children: [_jsx("h4", { children: "Apply estimate to Jira" }), !projectConfig?.estimateFieldId && (_jsx("p", { className: "error-text", children: "Configure an estimate field before applying." }))] }), _jsx("div", { className: "apply-estimate__chips", children: (projectConfig?.deckValues ?? session.deckValues).map((value) => (_jsx("button", { type: "button", className: `chip ${applyValue === value ? 'chip--selected' : ''}`, onClick: () => {
+    return (_jsxs("div", { className: "session-layout", children: [_jsxs("div", { className: "session-top-bar", children: [_jsx("button", { className: "text-button", type: "button", onClick: onBack, children: "\u2190 Sessions" }), _jsx("span", { className: "session-name", children: session.name }), realtimeStatus !== 'connected' && (_jsx("span", { className: "meta-text", role: "status", children: realtimeStatus === 'disabled'
+                            ? 'Realtime relay unavailable – falling back to polling'
+                            : realtimeStatus === 'error'
+                                ? 'Realtime connection lost – retrying'
+                                : 'Connecting to relay…' }))] }), _jsxs("div", { className: "filters-bar", children: [_jsx("label", { htmlFor: "jql-input", children: "JQL Filter" }), _jsx("input", { id: "jql-input", type: "text", value: jqlDraft, onChange: (event) => setJqlDraft(event.target.value), placeholder: 'e.g. project = "SCRUM" AND statusCategory != Done ORDER BY updated DESC' }), _jsx("button", { className: "secondary", type: "button", onClick: handleApplyJql, disabled: isFetchingIssues, children: isFetchingIssues ? 'Updating…' : 'Update list' })] }), _jsxs("p", { className: "meta-text", children: ["Current query: ", appliedJql || 'None (default project filter)'] }), actionError && _jsx("p", { className: "error-text", children: actionError }), issuesError && _jsx("p", { className: "error-text", children: issuesError }), _jsx(IssuePanel, { issue: currentIssue, index: currentIssueIndex, total: issues.length, onPrevious: handlePrevIssue, onNext: handleNextIssue, onReveal: handleReveal, onResetVotes: handleRevote, onAdvanceIssue: handleAdvance, isRevealed: isRevealed, disableReveal: !everyoneHasVoted || isSubmittingAction, disableNext: currentIssueIndex === issues.length - 1, isLoading: isFetchingIssues, canControl: viewerIsModerator, isBusy: isSubmittingAction }), currentIssue ? (_jsxs("div", { className: "session-grid", children: [_jsx(ParticipantsList, { participants: participants, votes: currentVotes, isRevealed: isRevealed }), _jsxs("div", { className: "session-side", children: [_jsx(Deck, { values: session.deckValues, selectedValue: localParticipantId ? currentVotes[localParticipantId]?.value ?? null : null, onSelect: handleCardSelect, disabled: isRevealed || isSubmittingAction, isRevealed: isRevealed }), isRevealed && (_jsxs("section", { className: "results-panel", children: [_jsxs("header", { className: "panel-heading", children: [_jsx("h3", { children: "Vote results" }), _jsx("span", { className: "meta-text", children: "Visible to everyone" })] }), _jsxs("dl", { className: "results-grid", children: [_jsxs("div", { children: [_jsx("dt", { children: "Average" }), _jsx("dd", { children: stats.average })] }), _jsxs("div", { children: [_jsx("dt", { children: "Median" }), _jsx("dd", { children: stats.median })] }), _jsxs("div", { children: [_jsx("dt", { children: "Min" }), _jsx("dd", { children: stats.min })] }), _jsxs("div", { children: [_jsx("dt", { children: "Max" }), _jsx("dd", { children: stats.max })] })] }), viewerIsModerator && (_jsxs("div", { className: "apply-estimate", children: [_jsxs("header", { children: [_jsx("h4", { children: "Apply estimate to Jira" }), !projectConfig?.estimateFieldId && (_jsx("p", { className: "error-text", children: "Configure an estimate field before applying." }))] }), _jsx("div", { className: "apply-estimate__chips", children: (projectConfig?.deckValues ?? session.deckValues).map((value) => (_jsx("button", { type: "button", className: `chip ${applyValue === value ? 'chip--selected' : ''}`, onClick: () => {
                                                         setApplyMessage(null);
                                                         setApplyValue(value);
                                                     }, children: value }, value))) }), _jsx("label", { htmlFor: "apply-estimate-input", children: "Custom value" }), _jsx("input", { id: "apply-estimate-input", type: "text", value: applyValue, onChange: (event) => {
@@ -275,6 +310,11 @@ export default function SessionPage({ data, onBack, onSessionData, viewerAccount
                                                     if (!projectConfig?.estimateFieldId) {
                                                         throw new Error('No estimate field configured for this project.');
                                                     }
+                                                    logOutgoing('applyEstimate', {
+                                                        sessionId: session.id,
+                                                        issueKey: currentIssue.key,
+                                                        value: valueToApply,
+                                                    });
                                                     await applyEstimateRequest(session.id, currentIssue.key, valueToApply);
                                                     setApplyMessage('Estimate applied to Jira ✔');
                                                 }, 'Unable to apply estimate.', true), disabled: isSubmittingAction || !applyValue || !projectConfig?.estimateFieldId, children: "Apply to Jira" }), applyMessage && _jsx("p", { className: "success-text", children: applyMessage })] }))] }))] })] })) : (_jsx("section", { className: "empty-panel", children: _jsx("p", { children: isFetchingIssues ? 'Loading issues…' : 'No issues found for this session.' }) }))] }));

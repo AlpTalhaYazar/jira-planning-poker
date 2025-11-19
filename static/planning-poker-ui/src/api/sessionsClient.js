@@ -17,3 +17,4 @@ export const fetchIssuesForProject = async (params) => {
     const response = await invoke('getIssuesForProject', params);
     return response;
 };
+export const getRealtimeToken = async (sessionId) => invoke('getRealtimeToken', { sessionId });

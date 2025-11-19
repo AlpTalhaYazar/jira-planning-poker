@@ -12,7 +12,8 @@
     "@atlaskit/css-reset": "^6.5.2",
     "@forge/bridge": "^5.8.0",
     "react": "^19.2.0",
-    "react-dom": "^19.2.0"
+    "react-dom": "^19.2.0",
+    "socket.io-client": "^4.8.1"
   },
   "devDependencies": {
     "@types/react": "^19.2.5",

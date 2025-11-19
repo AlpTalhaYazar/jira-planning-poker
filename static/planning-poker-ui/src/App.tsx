@@ -10,6 +10,9 @@ import {
   setProjectConfig,
 } from './api/sessionsClient';
 import type { ProjectConfig, SessionSummary, SessionWithParticipants } from './types/poker';
+import RealtimeDebugToasts from './components/RealtimeDebugToasts';
+import { useDebugEvents } from './hooks/useDebugEvents';
+import './App.css';
 
 interface ProjectPageContext {
   accountId?: string;
@@ -42,6 +45,7 @@ export default function App() {
   const [isConfigLoaded, setIsConfigLoaded] = useState(false);
   const [configError, setConfigError] = useState<string | null>(null);
   const [isSavingConfig, setIsSavingConfig] = useState(false);
+  const { events: debugEvents, pushEvent: pushDebugEvent } = useDebugEvents();
 
   useEffect(() => {
     let cancelled = false;
@@ -124,6 +128,11 @@ export default function App() {
     setSessionActionError(null);
     try {
       const name = createSessionName.trim() || `Planning Poker – ${new Date().toLocaleDateString()}`;
+      pushDebugEvent({
+        direction: 'outgoing',
+        event: 'createSession',
+        payload: { projectKey, name, deckType: effectiveDeckType },
+      });
       const newSession = await createSessionApi({
         projectKey,
         name,
@@ -146,6 +155,7 @@ export default function App() {
   const handleOpenSession = async (sessionId: string) => {
     setSessionActionError(null);
     try {
+      pushDebugEvent({ direction: 'outgoing', event: 'joinSession', payload: { sessionId } });
       const joined = await joinSessionApi(sessionId);
       setActiveSession(joined);
     } catch (err) {
@@ -161,6 +171,7 @@ export default function App() {
   const handleBackToList = async () => {
     if (activeSession) {
       try {
+        pushDebugEvent({ direction: 'outgoing', event: 'leaveSession', payload: { sessionId: activeSession.session.id } });
         await leaveSessionApi(activeSession.session.id);
       } catch (err) {
         console.warn('Failed to leave session gracefully', err);
@@ -278,6 +289,7 @@ export default function App() {
             setIsSavingConfig(true);
             setConfigError(null);
             try {
+              pushDebugEvent({ direction: 'outgoing', event: 'setProjectConfig', payload: projectConfig });
               const saved = await setProjectConfig({
                 ...projectConfig,
                 projectKey,
@@ -301,6 +313,7 @@ export default function App() {
 
   return (
     <div className="app-shell">
+      <RealtimeDebugToasts events={debugEvents} />
       <header className="app-header">
         <div>
           <p className="eyebrow">Jira Planning Poker</p>
@@ -318,6 +331,7 @@ export default function App() {
             onSessionData={handleSessionDataUpdate}
             viewerAccountId={viewerAccountId}
             projectConfig={projectConfig}
+            onDebugEvent={pushDebugEvent}
           />
         )}
       </main>

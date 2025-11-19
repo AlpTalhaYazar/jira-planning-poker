@@ -55,3 +55,8 @@ export interface EstimateField {
     id: string;
     name: string;
 }
+export interface RealtimeTokenResponse {
+    token: string | null;
+    relayUrl: string | null;
+    expiresAt: string | null;
+}

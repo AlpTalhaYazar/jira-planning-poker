@@ -22,3 +22,11 @@ permissions:
     - write:jira-work
     - read:jira-user
     - storage:app
+  external:
+    fetch:
+      backend:
+        - https://relay.alptalha.dev
+        - wss://relay.alptalha.dev
+      client:
+        - https://relay.alptalha.dev
+        - wss://relay.alptalha.dev

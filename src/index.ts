@@ -11,6 +11,7 @@ import {
 } from './api/sessions';
 import { recordVote, clearVotes, setIssueRevealState } from './api/votes';
 import { getProjectConfig, setProjectConfig } from './api/config';
+import { generateRelayToken, isRelayEnabled, publishRelayEvent } from './api/realtime';
 
 const resolver = new Resolver();
 
@@ -35,7 +36,7 @@ resolver.define('createSession', async (req) => {
   if (!projectKey || !name || !deckType || !deckValues || !creatorAccountId) {
     throw new Error('Missing required fields to create a session');
   }
-  return createSession({
+  const snapshot = await createSession({
     projectKey,
     name,
     deckType,
@@ -43,6 +44,7 @@ resolver.define('createSession', async (req) => {
     creatorAccountId,
     jql,
   });
+  return snapshot;
 });
 
 resolver.define('listSessionsByProject', async (req) => {
@@ -55,10 +57,25 @@ resolver.define('listSessionsByProject', async (req) => {
 
 resolver.define('joinSession', async (req) => {
   const { sessionId, issueKey } = req.payload ?? {};
+  const accountId = req.context?.accountId;
   if (!sessionId) {
     throw new Error('sessionId is required');
   }
-  return joinSession(sessionId, issueKey);
+  const snapshot = await joinSession(sessionId, issueKey);
+  if (accountId) {
+    const participant = snapshot.participants.find((p) => p.accountId === accountId);
+    if (participant) {
+      await publishRelayEvent({
+        sessionId,
+        event: 'session.joined',
+        payload: {
+          participantId: participant.accountId,
+          displayName: participant.displayName,
+        },
+      });
+    }
+  }
+  return snapshot;
 });
 
 resolver.define('leaveSession', async (req) => {
@@ -68,6 +85,7 @@ resolver.define('leaveSession', async (req) => {
     throw new Error('sessionId and accountId are required');
   }
   await leaveSession(sessionId, accountId);
+  await publishRelayEvent({ sessionId, event: 'participant.left', payload: { participantId: accountId } });
   return { ok: true };
 });
 
@@ -104,23 +122,35 @@ resolver.define('castVote', async (req) => {
     value,
     createdAt: new Date().toISOString(),
   };
-  return recordVote(sessionId, vote);
+  const state = await recordVote(sessionId, vote);
+  await publishRelayEvent({
+    sessionId,
+    event: 'vote.cast',
+    payload: { issueKey, participantId: accountId, value },
+  });
+  return state;
 });
 
 resolver.define('clearVotes', async (req) => {
   const { sessionId, issueKey } = req.payload ?? {};
-  if (!sessionId || !issueKey) {
-    throw new Error('sessionId and issueKey are required');
+  const accountId = req.context?.accountId;
+  if (!sessionId || !issueKey || !accountId) {
+    throw new Error('sessionId, issueKey, and accountId are required');
   }
-  return clearVotes(sessionId, issueKey);
+  const state = await clearVotes(sessionId, issueKey);
+  await publishRelayEvent({ sessionId, event: 'votes.cleared', payload: { issueKey, actorId: accountId } });
+  return state;
 });
 
 resolver.define('revealIssue', async (req) => {
   const { sessionId, issueKey } = req.payload ?? {};
-  if (!sessionId || !issueKey) {
-    throw new Error('sessionId and issueKey are required');
+  const accountId = req.context?.accountId;
+  if (!sessionId || !issueKey || !accountId) {
+    throw new Error('sessionId, issueKey, and accountId are required');
   }
-  return setIssueRevealState(sessionId, issueKey, true);
+  const state = await setIssueRevealState(sessionId, issueKey, true);
+  await publishRelayEvent({ sessionId, event: 'issue.revealed', payload: { issueKey, actorId: accountId } });
+  return state;
 });
 
 resolver.define('setCurrentIssue', async (req) => {
@@ -137,7 +167,18 @@ resolver.define('setCurrentIssue', async (req) => {
   if (!participant || !participant.isModerator) {
     throw new Error('Only moderators can change the current issue.');
   }
-  return setCurrentIssueKey(sessionId, issueKey);
+  const previousIssue = snapshot.session.currentIssueKey ?? undefined;
+  const updatedSnapshot = await setCurrentIssueKey(sessionId, issueKey);
+  await publishRelayEvent({
+    sessionId,
+    event: 'issue.advance',
+    payload: {
+      fromIssueKey: previousIssue ?? undefined,
+      toIssueKey: issueKey,
+      actorId: accountId,
+    },
+  });
+  return updatedSnapshot;
 });
 
 resolver.define('getProjectConfig', async (req) => {
@@ -181,6 +222,38 @@ resolver.define('applyEstimate', async (req) => {
     throw new Error('No estimate field configured for this project.');
   }
   return applyEstimateRequest({ sessionId, issueKey, value }, config.estimateFieldId);
+});
+
+resolver.define('getRealtimeToken', async (req) => {
+  const { sessionId } = req.payload ?? {};
+  const accountId = req.context?.accountId;
+  if (!sessionId || !accountId) {
+    throw new Error('sessionId and accountId are required');
+  }
+  if (!isRelayEnabled()) {
+    console.log('[Realtime] Relay not configured, returning null token');
+    return {
+      token: null,
+      relayUrl: null,
+      expiresAt: null,
+    };
+  }
+  const snapshot = await getSessionRecord(sessionId);
+  if (!snapshot) {
+    throw new Error('Session not found');
+  }
+  const isParticipant = snapshot.participants.some((participant) => participant.accountId === accountId);
+  if (!isParticipant) {
+    throw new Error('You must join the session before requesting a realtime token.');
+  }
+  const token = generateRelayToken(sessionId, accountId);
+  console.log('[Realtime] Issued token', {
+    sessionId,
+    accountId,
+    relayUrl: token.relayUrl,
+    expiresAt: token.expiresAt,
+  });
+  return token;
 });
 
 export const handler = resolver.getDefinitions();

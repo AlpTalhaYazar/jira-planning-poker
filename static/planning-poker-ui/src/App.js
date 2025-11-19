@@ -3,6 +3,9 @@ import { useCallback, useEffect, useState } from 'react';
 import { view } from '@forge/bridge';
 import SessionPage from './features/session/SessionPage';
 import { createSession as createSessionApi, joinSession as joinSessionApi, leaveSession as leaveSessionApi, listSessions, getProjectConfig, setProjectConfig, } from './api/sessionsClient';
+import RealtimeDebugToasts from './components/RealtimeDebugToasts';
+import { useDebugEvents } from './hooks/useDebugEvents';
+import './App.css';
 const DEFAULT_FIBONACCI_DECK = ['0', '0.5', '1', '2', '3', '5', '8', '13', '20', '40', '100', '?', '☕'];
 export default function App() {
     const [context, setContext] = useState(null);
@@ -20,6 +23,7 @@ export default function App() {
     const [isConfigLoaded, setIsConfigLoaded] = useState(false);
     const [configError, setConfigError] = useState(null);
     const [isSavingConfig, setIsSavingConfig] = useState(false);
+    const { events: debugEvents, pushEvent: pushDebugEvent } = useDebugEvents();
     useEffect(() => {
         let cancelled = false;
         const fetchContext = async () => {
@@ -96,6 +100,11 @@ export default function App() {
         setSessionActionError(null);
         try {
             const name = createSessionName.trim() || `Planning Poker – ${new Date().toLocaleDateString()}`;
+            pushDebugEvent({
+                direction: 'outgoing',
+                event: 'createSession',
+                payload: { projectKey, name, deckType: effectiveDeckType },
+            });
             const newSession = await createSessionApi({
                 projectKey,
                 name,
@@ -119,6 +128,7 @@ export default function App() {
     const handleOpenSession = async (sessionId) => {
         setSessionActionError(null);
         try {
+            pushDebugEvent({ direction: 'outgoing', event: 'joinSession', payload: { sessionId } });
             const joined = await joinSessionApi(sessionId);
             setActiveSession(joined);
         }
@@ -133,6 +143,7 @@ export default function App() {
     const handleBackToList = async () => {
         if (activeSession) {
             try {
+                pushDebugEvent({ direction: 'outgoing', event: 'leaveSession', payload: { sessionId: activeSession.session.id } });
                 await leaveSessionApi(activeSession.session.id);
             }
             catch (err) {
@@ -160,6 +171,7 @@ export default function App() {
                             setIsSavingConfig(true);
                             setConfigError(null);
                             try {
+                                pushDebugEvent({ direction: 'outgoing', event: 'setProjectConfig', payload: projectConfig });
                                 const saved = await setProjectConfig({
                                     ...projectConfig,
                                     projectKey,
@@ -175,5 +187,5 @@ export default function App() {
                                 setIsSavingConfig(false);
                             }
                         }, disabled: isSavingConfig || !projectKey || !projectConfig, children: isSavingConfig ? 'Saving…' : 'Save config' })] })] }));
-    return (_jsxs("div", { className: "app-shell", children: [_jsx("header", { className: "app-header", children: _jsxs("div", { children: [_jsx("p", { className: "eyebrow", children: "Jira Planning Poker" }), _jsx("h1", { children: pageTitle })] }) }), _jsxs("main", { className: "app-content", children: [isLoadingContext && _jsx("p", { children: "Loading Jira context\u2026" }), !isLoadingContext && contextError && _jsx("p", { className: "error-text", children: contextError }), !isLoadingContext && !contextError && !activeSession && renderSessionList(), !isLoadingContext && !contextError && activeSession && (_jsx(SessionPage, { data: activeSession, onBack: handleBackToList, onSessionData: handleSessionDataUpdate, viewerAccountId: viewerAccountId, projectConfig: projectConfig }))] })] }));
+    return (_jsxs("div", { className: "app-shell", children: [_jsx(RealtimeDebugToasts, { events: debugEvents }), _jsx("header", { className: "app-header", children: _jsxs("div", { children: [_jsx("p", { className: "eyebrow", children: "Jira Planning Poker" }), _jsx("h1", { children: pageTitle })] }) }), _jsxs("main", { className: "app-content", children: [isLoadingContext && _jsx("p", { children: "Loading Jira context\u2026" }), !isLoadingContext && contextError && _jsx("p", { className: "error-text", children: contextError }), !isLoadingContext && !contextError && !activeSession && renderSessionList(), !isLoadingContext && !contextError && activeSession && (_jsx(SessionPage, { data: activeSession, onBack: handleBackToList, onSessionData: handleSessionDataUpdate, viewerAccountId: viewerAccountId, projectConfig: projectConfig, onDebugEvent: pushDebugEvent }))] })] }));
 }

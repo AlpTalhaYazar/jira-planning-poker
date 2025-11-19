@@ -1,4 +1,4 @@
-import type { DeckType, Issue, IssueVoteState, ProjectConfig, SessionSummary, SessionWithParticipants } from '../types/poker';
+import type { DeckType, Issue, IssueVoteState, ProjectConfig, RealtimeTokenResponse, SessionSummary, SessionWithParticipants } from '../types/poker';
 export interface GetIssuesRequest {
     projectKey?: string;
     jql?: string;
@@ -31,3 +31,4 @@ export declare const applyEstimate: (sessionId: string, issueKey: string, value:
     value: string;
 }>;
 export declare const fetchIssuesForProject: (params: GetIssuesRequest) => Promise<Issue[]>;
+export declare const getRealtimeToken: (sessionId: string) => Promise<RealtimeTokenResponse>;

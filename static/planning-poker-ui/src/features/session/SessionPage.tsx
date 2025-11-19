@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Deck from '../voting/Deck';
 import IssuePanel from '../../components/IssuePanel';
-import ParticipantsList from '../../components/ParticipantsList';
 import type { Issue, ProjectConfig, SessionWithParticipants, Vote } from '../../types/poker';
+import ParticipantsList from '../../components/ParticipantsList';
+import { useRealtimeSession } from '../../hooks/useRealtimeSession';
 import {
   applyEstimate as applyEstimateRequest,
   castVote as castVoteRequest,
@@ -12,6 +13,7 @@ import {
   revealIssue as revealIssueRequest,
   setCurrentIssue as setCurrentIssueRequest,
 } from '../../api/sessionsClient';
+import { POLLING_INTERVAL_MS } from '../../constants/realtime';
 
 interface SessionPageProps {
   data: SessionWithParticipants;
@@ -19,6 +21,7 @@ interface SessionPageProps {
   onSessionData: (data: SessionWithParticipants) => void;
   viewerAccountId?: string;
   projectConfig?: ProjectConfig | null;
+  onDebugEvent: (entry: { direction: 'incoming' | 'outgoing'; event: string; payload: unknown }) => void;
 }
 
 const numericValue = (value: string | null | undefined) => {
@@ -54,13 +57,14 @@ const summarizeVotes = (votes: Record<string, Vote>) => {
 const defaultJqlForSession = (session: SessionWithParticipants['session']) =>
   session.jql ?? (session.projectKey ? `project = "${session.projectKey}" ORDER BY updated DESC` : '');
 
-export default function SessionPage({ data, onBack, onSessionData, viewerAccountId, projectConfig }: SessionPageProps) {
+export default function SessionPage({ data, onBack, onSessionData, viewerAccountId, projectConfig, onDebugEvent }: SessionPageProps) {
   const session = data.session;
   const participants = data.participants;
   const viewerParticipant = viewerAccountId
     ? participants.find((participant) => participant.accountId === viewerAccountId)
     : undefined;
   const viewerIsModerator = viewerParticipant?.isModerator ?? false;
+
 
   const [issues, setIssues] = useState<Issue[]>([]);
   const [isFetchingIssues, setIsFetchingIssues] = useState(false);
@@ -71,6 +75,7 @@ export default function SessionPage({ data, onBack, onSessionData, viewerAccount
   const [actionError, setActionError] = useState<string | null>(null);
   const [isSubmittingAction, setIsSubmittingAction] = useState(false);
   const hasInitialisedIssueRef = useRef(false);
+
 
   useEffect(() => {
     setJqlDraft(defaultJqlForSession(session));
@@ -161,6 +166,7 @@ export default function SessionPage({ data, onBack, onSessionData, viewerAccount
       setCurrentIssueIndex(0);
       const firstKey = issues[0]?.key;
       if (viewerIsModerator && firstKey) {
+        logOutgoing('setCurrentIssue', { sessionId: session.id, issueKey: firstKey });
         setCurrentIssueRequest(session.id, firstKey)
           .then((snapshot) => onSessionData(snapshot))
           .catch((err) => {
@@ -171,12 +177,53 @@ export default function SessionPage({ data, onBack, onSessionData, viewerAccount
     }
   }, [issues, session.currentIssueKey, currentIssueIndex, viewerIsModerator, session.id, onSessionData]);
 
+  const handleSessionEvent = useCallback(
+    (message: { sessionId?: string }) => {
+      if (message?.sessionId === session.id) {
+        refreshSession();
+      }
+    },
+    [session.id, refreshSession]
+  );
+
+  const logDebug = useCallback(
+    (direction: 'incoming' | 'outgoing', eventName: string, payload: unknown) => {
+      onDebugEvent({ direction, event: eventName, payload });
+    },
+    [onDebugEvent]
+  );
+
+  const logOutgoing = useCallback(
+    (eventName: string, payload: unknown) => {
+      logDebug('outgoing', eventName, payload);
+    },
+    [logDebug]
+  );
+
+  const captureSessionEvent = useCallback(
+    (message: { sessionId?: string; event?: string; payload?: unknown }) => {
+      logDebug('incoming', message.event ?? 'session:event', message.payload ?? message);
+      handleSessionEvent(message);
+    },
+    [handleSessionEvent, logDebug]
+  );
+
+  const { status: realtimeStatus } = useRealtimeSession({
+    sessionId: session.id,
+    onSessionEvent: captureSessionEvent,
+    onSocketEvent: (eventName, payload) => logDebug('incoming', eventName, payload),
+    onToken: (tokenResponse) => logDebug('incoming', 'token', tokenResponse),
+  });
+
   useEffect(() => {
+    if (realtimeStatus !== 'disabled' && realtimeStatus !== 'error') {
+      return;
+    }
     const interval = setInterval(() => {
       refreshSession();
-    }, 4000);
+    }, POLLING_INTERVAL_MS);
     return () => clearInterval(interval);
-  }, [refreshSession]);
+  }, [realtimeStatus, refreshSession]);
 
   const localParticipantId =
     (viewerAccountId && participants.some((p) => p.accountId === viewerAccountId) && viewerAccountId) ||
@@ -244,6 +291,7 @@ export default function SessionPage({ data, onBack, onSessionData, viewerAccount
 
   const handleCardSelect = (value: string) => {
     if (!localParticipantId || !currentIssue || isRevealed || isSubmittingAction) return;
+    logOutgoing('castVote', { sessionId: session.id, issueKey: currentIssue.key, value });
     runAction(
       () => castVoteRequest(session.id, currentIssue.key, value),
       'Unable to submit your vote. Please try again.',
@@ -254,12 +302,14 @@ export default function SessionPage({ data, onBack, onSessionData, viewerAccount
   const handleReveal = () => {
     if (!currentIssue || isRevealed) return;
     if (!ensureModerator()) return;
+    logOutgoing('revealIssue', { sessionId: session.id, issueKey: currentIssue.key });
     runAction(() => revealIssueRequest(session.id, currentIssue.key), 'Unable to reveal votes right now.');
   };
 
   const handleRevote = () => {
     if (!currentIssue) return;
     if (!ensureModerator()) return;
+    logOutgoing('clearVotes', { sessionId: session.id, issueKey: currentIssue.key });
     runAction(() => clearVotesRequest(session.id, currentIssue.key), 'Unable to reset votes.');
     setApplyValue('');
     setApplyMessage(null);
@@ -281,6 +331,7 @@ export default function SessionPage({ data, onBack, onSessionData, viewerAccount
     setIsSubmittingAction(true);
     setApplyValue('');
     setApplyMessage(null);
+    logOutgoing('setCurrentIssue', { sessionId: session.id, issueKey: targetIssue.key });
     setCurrentIssueRequest(session.id, targetIssue.key)
       .then((snapshot) => {
         onSessionData(snapshot);
@@ -317,6 +368,15 @@ export default function SessionPage({ data, onBack, onSessionData, viewerAccount
           ← Sessions
         </button>
         <span className="session-name">{session.name}</span>
+        {realtimeStatus !== 'connected' && (
+          <span className="meta-text" role="status">
+            {realtimeStatus === 'disabled'
+              ? 'Realtime relay unavailable – falling back to polling'
+              : realtimeStatus === 'error'
+                ? 'Realtime connection lost – retrying'
+                : 'Connecting to relay…'}
+          </span>
+        )}
       </div>
       <div className="filters-bar">
         <label htmlFor="jql-input">JQL Filter</label>
@@ -434,6 +494,11 @@ export default function SessionPage({ data, onBack, onSessionData, viewerAccount
                             if (!projectConfig?.estimateFieldId) {
                               throw new Error('No estimate field configured for this project.');
                             }
+                            logOutgoing('applyEstimate', {
+                              sessionId: session.id,
+                              issueKey: currentIssue.key,
+                              value: valueToApply,
+                            });
                             await applyEstimateRequest(session.id, currentIssue.key, valueToApply);
                             setApplyMessage('Estimate applied to Jira ✔');
                           },
