@@ -12,8 +12,17 @@ import {
 import { recordVote, clearVotes, setIssueRevealState, toIssueVoteSnapshot } from './api/votes';
 import { getProjectConfig, setProjectConfig } from './api/config';
 import { generateRelayToken, isRelayEnabled, publishRelayEvent } from './api/realtime';
+import { assertProjectContext, getContextProjectKey } from './utils/context';
+import { canEditProjectConfig, requireProjectAdmin } from './services/projectPermissions';
 
 const resolver = new Resolver();
+const ensureSessionInContext = (req: any, projectKey: string): string => {
+  const contextKey = getContextProjectKey(req);
+  if (projectKey !== contextKey) {
+    throw new Error('You do not have access to this session.');
+  }
+  return contextKey;
+};
 
 resolver.define('healthcheck', async () => ({
   app: 'planning-poker',
@@ -23,8 +32,9 @@ resolver.define('healthcheck', async () => ({
 
 resolver.define('getIssuesForProject', async (req) => {
   const { projectKey, jql, maxResults } = req.payload ?? {};
+  const resolvedProjectKey = assertProjectContext(req, projectKey);
   return getIssuesForProject({
-    projectKey,
+    projectKey: resolvedProjectKey,
     jql,
     maxResults,
   });
@@ -36,8 +46,9 @@ resolver.define('createSession', async (req) => {
   if (!projectKey || !name || !deckType || !deckValues || !creatorAccountId) {
     throw new Error('Missing required fields to create a session');
   }
+  const resolvedProjectKey = assertProjectContext(req, projectKey);
   const snapshot = await createSession({
-    projectKey,
+    projectKey: resolvedProjectKey,
     name,
     deckType,
     deckValues,
@@ -49,10 +60,8 @@ resolver.define('createSession', async (req) => {
 
 resolver.define('listSessionsByProject', async (req) => {
   const { projectKey } = req.payload ?? {};
-  if (!projectKey) {
-    throw new Error('projectKey is required');
-  }
-  return listSessionsByProject(projectKey);
+  const resolvedProjectKey = assertProjectContext(req, projectKey);
+  return listSessionsByProject(resolvedProjectKey);
 });
 
 resolver.define('joinSession', async (req) => {
@@ -61,6 +70,11 @@ resolver.define('joinSession', async (req) => {
   if (!sessionId) {
     throw new Error('sessionId is required');
   }
+  const existing = await getSessionRecord(sessionId);
+  if (!existing) {
+    throw new Error('Session not found');
+  }
+  ensureSessionInContext(req, existing.session.projectKey);
   const snapshot = await joinSession(sessionId, issueKey);
   if (accountId) {
     const participant = snapshot.participants.find((p) => p.accountId === accountId);
@@ -84,6 +98,11 @@ resolver.define('leaveSession', async (req) => {
   if (!sessionId || !accountId) {
     throw new Error('sessionId and accountId are required');
   }
+  const snapshot = await getSessionRecord(sessionId);
+  if (!snapshot) {
+    throw new Error('Session not found');
+  }
+  ensureSessionInContext(req, snapshot.session.projectKey);
   await leaveSession(sessionId, accountId);
   await publishRelayEvent({ sessionId, event: 'participant.left', payload: { participantId: accountId } });
   return { ok: true };
@@ -102,6 +121,7 @@ resolver.define('getSession', async (req) => {
   if (!session) {
     throw new Error('Session not found');
   }
+  ensureSessionInContext(req, session.session.projectKey);
   return session;
 });
 
@@ -115,6 +135,7 @@ resolver.define('castVote', async (req) => {
   if (!session) {
     throw new Error('Session not found');
   }
+  ensureSessionInContext(req, session.session.projectKey);
   const isParticipant = session.participants.some((participant) => participant.accountId === accountId);
   if (!isParticipant) {
     throw new Error('You must join the session before voting.');
@@ -141,6 +162,11 @@ resolver.define('clearVotes', async (req) => {
   if (!sessionId || !issueKey || !accountId) {
     throw new Error('sessionId, issueKey, and accountId are required');
   }
+  const session = await getSessionRecord(sessionId, { viewerAccountId: accountId });
+  if (!session) {
+    throw new Error('Session not found');
+  }
+  ensureSessionInContext(req, session.session.projectKey);
   const state = await clearVotes(sessionId, issueKey);
   await publishRelayEvent({ sessionId, event: 'votes.cleared', payload: { issueKey, actorId: accountId } });
   return toIssueVoteSnapshot(state, accountId);
@@ -152,6 +178,11 @@ resolver.define('revealIssue', async (req) => {
   if (!sessionId || !issueKey || !accountId) {
     throw new Error('sessionId, issueKey, and accountId are required');
   }
+  const session = await getSessionRecord(sessionId, { viewerAccountId: accountId });
+  if (!session) {
+    throw new Error('Session not found');
+  }
+  ensureSessionInContext(req, session.session.projectKey);
   const state = await setIssueRevealState(sessionId, issueKey, true);
   await publishRelayEvent({ sessionId, event: 'issue.revealed', payload: { issueKey, actorId: accountId } });
   return toIssueVoteSnapshot(state, accountId);
@@ -167,6 +198,7 @@ resolver.define('setCurrentIssue', async (req) => {
   if (!snapshot) {
     throw new Error('Session not found');
   }
+  ensureSessionInContext(req, snapshot.session.projectKey);
   const participant = snapshot.participants.find((p) => p.accountId === accountId);
   if (!participant || !participant.isModerator) {
     throw new Error('Only moderators can change the current issue.');
@@ -189,10 +221,10 @@ resolver.define('setCurrentIssue', async (req) => {
 
 resolver.define('getProjectConfig', async (req) => {
   const { projectKey } = req.payload ?? {};
-  if (!projectKey) {
-    throw new Error('projectKey is required');
-  }
-  return getProjectConfig(projectKey);
+  const resolvedProjectKey = assertProjectContext(req, projectKey);
+  const config = await getProjectConfig(resolvedProjectKey);
+  const canEdit = req.context?.accountId ? await canEditProjectConfig(resolvedProjectKey) : false;
+  return { ...config, canEdit };
 });
 
 resolver.define('setProjectConfig', async (req) => {
@@ -200,13 +232,16 @@ resolver.define('setProjectConfig', async (req) => {
   if (!projectKey || !deckType) {
     throw new Error('projectKey and deckType are required');
   }
-  return setProjectConfig({
-    projectKey,
+  const resolvedProjectKey = assertProjectContext(req, projectKey);
+  await requireProjectAdmin(resolvedProjectKey);
+  const updated = await setProjectConfig({
+    projectKey: resolvedProjectKey,
     estimateFieldId,
     deckType,
     deckValues,
     defaultJql,
   });
+  return { ...updated, canEdit: true };
 });
 
 resolver.define('applyEstimate', async (req) => {
@@ -215,9 +250,13 @@ resolver.define('applyEstimate', async (req) => {
   if (!sessionId || !issueKey || !value || !accountId) {
     throw new Error('sessionId, issueKey, value, and accountId are required');
   }
+  const contextProjectKey = getContextProjectKey(req);
   const snapshot = await getSessionRecord(sessionId, { viewerAccountId: accountId });
   if (!snapshot) {
     throw new Error('Session not found');
+  }
+  if (snapshot.session.projectKey !== contextProjectKey) {
+    throw new Error('You do not have access to this session.');
   }
   const participant = snapshot.participants.find((p) => p.accountId === accountId);
   if (!participant || !participant.isModerator) {
@@ -244,9 +283,13 @@ resolver.define('getRealtimeToken', async (req) => {
       expiresAt: null,
     };
   }
+  const contextProjectKey = getContextProjectKey(req);
   const snapshot = await getSessionRecord(sessionId, { viewerAccountId: accountId });
   if (!snapshot) {
     throw new Error('Session not found');
+  }
+  if (snapshot.session.projectKey !== contextProjectKey) {
+    throw new Error('You do not have access to this session.');
   }
   const isParticipant = snapshot.participants.some((participant) => participant.accountId === accountId);
   if (!isParticipant) {

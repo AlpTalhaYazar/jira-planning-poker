@@ -80,6 +80,7 @@ export default function App() {
   const viewerAccountId = context?.accountId;
   const effectiveDeckValues = projectConfig?.deckValues ?? DEFAULT_FIBONACCI_DECK;
   const effectiveDeckType = projectConfig?.deckType ?? 'fibonacci';
+  const canEditProjectConfig = projectConfig?.canEdit ?? false;
   const effectiveDefaultJql =
     createSessionJql || projectConfig?.defaultJql || (projectKey ? `project = "${projectKey}" AND statusCategory != Done` : '');
 
@@ -247,66 +248,76 @@ export default function App() {
       <div className="session-create-card">
         <h3>Project configuration</h3>
         {configError && <p className="error-text">{configError}</p>}
-        <div className="session-create-fields">
-          <label htmlFor="estimate-field-id">Estimate Field ID</label>
-          <input
-            id="estimate-field-id"
-            type="text"
-            value={projectConfig?.estimateFieldId ?? ''}
-            onChange={(event) =>
-              setProjectConfigState((prev) => ({
-                ...(prev ?? { projectKey: projectKey ?? '' }),
-                estimateFieldId: event.target.value || undefined,
-                deckType: prev?.deckType ?? 'fibonacci',
-              }))
-            }
-            placeholder="customfield_10016"
-          />
-        </div>
-        <div className="session-create-fields">
-          <label htmlFor="default-jql">Default JQL</label>
-          <input
-            id="default-jql"
-            type="text"
-            value={projectConfig?.defaultJql ?? ''}
-            onChange={(event) =>
-              setProjectConfigState((prev) => ({
-                ...(prev ?? { projectKey: projectKey ?? '' }),
-                defaultJql: event.target.value || undefined,
-                deckType: prev?.deckType ?? 'fibonacci',
-              }))
-            }
-            placeholder={`project = "${projectKey ?? 'KEY'}" AND statusCategory != Done`}
-          />
-        </div>
-        <button
-          type="button"
-          className="primary"
-          onClick={async () => {
-            if (!projectKey || !projectConfig) {
-              return;
-            }
-            setIsSavingConfig(true);
-            setConfigError(null);
-            try {
-              pushDebugEvent({ direction: 'outgoing', event: 'setProjectConfig', payload: projectConfig });
-              const saved = await setProjectConfig({
-                ...projectConfig,
-                projectKey,
-                deckType: projectConfig.deckType ?? 'fibonacci',
-              });
-              setProjectConfigState(saved);
-            } catch (err) {
-              console.error('Failed to save project config', err);
-              setConfigError('Unable to save project configuration.');
-            } finally {
-              setIsSavingConfig(false);
-            }
-          }}
-          disabled={isSavingConfig || !projectKey || !projectConfig}
-        >
-          {isSavingConfig ? 'Saving…' : 'Save config'}
-        </button>
+        {!projectConfig ? (
+          <p>Loading configuration…</p>
+        ) : !canEditProjectConfig ? (
+          <p className="meta-text">Only project admins can manage Planning Poker configuration.</p>
+        ) : (
+          <>
+            <div className="session-create-fields">
+              <label htmlFor="estimate-field-id">Estimate Field ID</label>
+              <input
+                id="estimate-field-id"
+                type="text"
+                value={projectConfig?.estimateFieldId ?? ''}
+                onChange={(event) =>
+                  setProjectConfigState((prev) => ({
+                    ...(prev ?? { projectKey: projectKey ?? '' }),
+                    estimateFieldId: event.target.value || undefined,
+                    deckType: prev?.deckType ?? 'fibonacci',
+                  }))
+                }
+                placeholder="customfield_10016"
+                disabled={!canEditProjectConfig}
+              />
+            </div>
+            <div className="session-create-fields">
+              <label htmlFor="default-jql">Default JQL</label>
+              <input
+                id="default-jql"
+                type="text"
+                value={projectConfig?.defaultJql ?? ''}
+                onChange={(event) =>
+                  setProjectConfigState((prev) => ({
+                    ...(prev ?? { projectKey: projectKey ?? '' }),
+                    defaultJql: event.target.value || undefined,
+                    deckType: prev?.deckType ?? 'fibonacci',
+                  }))
+                }
+                placeholder={`project = "${projectKey ?? 'KEY'}" AND statusCategory != Done`}
+                disabled={!canEditProjectConfig}
+              />
+            </div>
+            <button
+              type="button"
+              className="primary"
+              onClick={async () => {
+                if (!projectKey || !projectConfig || !canEditProjectConfig) {
+                  return;
+                }
+                setIsSavingConfig(true);
+                setConfigError(null);
+                try {
+                  pushDebugEvent({ direction: 'outgoing', event: 'setProjectConfig', payload: projectConfig });
+                  const saved = await setProjectConfig({
+                    ...projectConfig,
+                    projectKey,
+                    deckType: projectConfig.deckType ?? 'fibonacci',
+                  });
+                  setProjectConfigState(saved);
+                } catch (err) {
+                  console.error('Failed to save project config', err);
+                  setConfigError('Unable to save project configuration.');
+                } finally {
+                  setIsSavingConfig(false);
+                }
+              }}
+              disabled={isSavingConfig || !projectKey || !projectConfig || !canEditProjectConfig}
+            >
+              {isSavingConfig ? 'Saving…' : 'Save config'}
+            </button>
+          </>
+        )}
       </div>
     </div>
   );

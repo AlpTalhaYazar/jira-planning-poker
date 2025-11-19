@@ -2,7 +2,7 @@ import api, { route } from '@forge/api';
 import type { Issue, ApplyEstimateInput } from '../types/domain';
 
 interface GetIssuesParams {
-  projectKey?: string;
+  projectKey: string;
   jql?: string;
   maxResults?: number;
 }
@@ -35,7 +35,7 @@ export const getIssuesForProject = async ({
       : 'ORDER BY updated DESC');
 
   const response = await api
-    .asApp()
+    .asUser()
     .requestJira(route`/rest/api/3/search`, {
       method: 'POST',
       headers: {
@@ -77,7 +77,7 @@ const extractEstimate = (fields: Record<string, unknown>): string | undefined =>
 
 export const applyEstimate = async ({ sessionId, issueKey, value }: ApplyEstimateInput, fieldId: string) => {
   const response = await api
-    .asApp()
+    .asUser()
     .requestJira(route`/rest/api/3/issue/${issueKey}`, {
       method: 'PUT',
       headers: {

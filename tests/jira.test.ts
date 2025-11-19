@@ -31,7 +31,7 @@ describe('Jira API integration', () => {
     let capturedMethod: string | undefined;
     let capturedBody: any;
 
-    testingApi.onAppRequest('/rest/api/3/search', async (_url: string, init?: RequestInit) => {
+    testingApi.onUserRequest('/rest/api/3/search', async (_url: string, init?: RequestInit) => {
       capturedMethod = init?.method;
       capturedBody = init?.body ? JSON.parse(init.body as string) : undefined;
       return buildResponse({
@@ -54,5 +54,17 @@ describe('Jira API integration', () => {
     expect(capturedBody.jql).toContain('project = "TEST"');
     expect(capturedBody.maxResults).toBeGreaterThan(0);
     expect(issues[0]).toMatchObject({ key: 'TEST-1', summary: 'My issue', estimate: '3' });
+  });
+
+  it('applies estimates as the viewing user', async () => {
+    let receivedBody: any;
+    testingApi.onUserRequest(/\/rest\/api\/3\/issue\/TEST-1/, async (_url: string, init?: RequestInit) => {
+      receivedBody = init?.body ? JSON.parse(init.body as string) : undefined;
+      return buildResponse({});
+    });
+
+    const { applyEstimate } = await import('../src/api/jira');
+    await applyEstimate({ sessionId: 's', issueKey: 'TEST-1', value: '8' }, 'customfield_10016');
+    expect(receivedBody.fields.customfield_10016).toBe(8);
   });
 });

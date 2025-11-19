@@ -57,6 +57,7 @@ export interface ProjectConfig {
   deckType: DeckType;
   deckValues?: string[];
   defaultJql?: string;
+  canEdit?: boolean;
 }
 
 export interface EstimateField {
