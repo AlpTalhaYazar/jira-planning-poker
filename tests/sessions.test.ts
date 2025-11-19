@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { createSession, getSession, joinSession, setCurrentIssueKey } from '../src/api/sessions';
+import { storage } from '@forge/api';
+import { createSession, getSession, joinSession, listSessionsByProject, setCurrentIssueKey } from '../src/api/sessions';
 import type { CreateSessionInput } from '../src/api/sessions';
 import { recordVote, setIssueRevealState } from '../src/api/votes';
 import type { Vote } from '../src/types/domain';
@@ -134,5 +135,67 @@ describe('session vote privacy', () => {
     await setIssueRevealState(sessionId, 'TEST-1', true);
     const afterReveal = await getSession(sessionId, { viewerAccountId: 'user-a' });
     expect(afterReveal?.currentIssueState?.votes['moderator']?.value).toBe('3');
+  });
+});
+
+describe('session listing summaries', () => {
+  beforeEach(() => {
+    testingApi.reset();
+  });
+
+  it('stores summary objects in the project index', async () => {
+    testingApi.enqueueMyselfResponse({
+      accountId: 'summary-owner',
+      displayName: 'Summary Owner',
+      avatarUrls: { '48x48': 'owner.png' },
+    });
+
+    const snapshot = await createSession({
+      projectKey: 'SUMM',
+      name: 'Summary Session',
+      deckType: 'fibonacci',
+      deckValues: ['1', '2', '3'],
+      creatorAccountId: 'summary-owner',
+    });
+
+    const indexValue = testingApi.getValue('project:SUMM:sessions');
+    expect(Array.isArray(indexValue)).toBe(true);
+    expect(indexValue[0]).toMatchObject({ id: snapshot.session.id, name: 'Summary Session' });
+
+    const sessions = await listSessionsByProject('SUMM');
+    expect(sessions).toHaveLength(1);
+    expect(sessions[0]).toMatchObject({
+      id: snapshot.session.id,
+      name: 'Summary Session',
+      projectKey: 'SUMM',
+    });
+  });
+
+  it('migrates legacy indexes that only stored session ids', async () => {
+    testingApi.enqueueMyselfResponse({
+      accountId: 'legacy-owner',
+      displayName: 'Legacy Owner',
+      avatarUrls: { '48x48': 'legacy.png' },
+    });
+
+    const snapshot = await createSession({
+      projectKey: 'LEGACY',
+      name: 'Legacy Session',
+      deckType: 'fibonacci',
+      deckValues: ['1', '2', '3'],
+      creatorAccountId: 'legacy-owner',
+    });
+
+    await storage.set('project:LEGACY:sessions', [snapshot.session.id]);
+
+    const sessions = await listSessionsByProject('LEGACY');
+    expect(sessions).toHaveLength(1);
+    expect(sessions[0].id).toBe(snapshot.session.id);
+    expect(sessions[0].name).toBe('Legacy Session');
+
+    const persistedIndex = testingApi.getValue('project:LEGACY:sessions');
+    expect(Array.isArray(persistedIndex)).toBe(true);
+    expect(typeof persistedIndex[0]).toBe('object');
+    expect(persistedIndex[0]).toMatchObject({ id: snapshot.session.id, name: 'Legacy Session' });
   });
 });

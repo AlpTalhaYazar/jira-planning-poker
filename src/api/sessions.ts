@@ -1,13 +1,25 @@
 import api, { route, storage } from '@forge/api';
 import { startsWith } from '@forge/storage';
 import { randomUUID } from 'crypto';
-import type { Participant, Session, DeckType, SessionSnapshot } from '../types/domain';
+import type { Participant, Session, DeckType, SessionSnapshot, SessionStatus } from '../types/domain';
 import { getIssueState, toIssueVoteSnapshot } from './votes';
 
 const sessionKey = (sessionId: string) => `session:${sessionId}`;
 const participantPrefixKey = (sessionId: string) => `session:${sessionId}:participant:`;
 const participantKey = (sessionId: string, accountId: string) => `${participantPrefixKey(sessionId)}${accountId}`;
 const projectSessionsKey = (projectKey: string) => `project:${projectKey}:sessions`;
+
+interface SessionListEntry {
+  id: string;
+  name: string;
+  projectKey: string;
+  createdAt: string;
+  deckType: DeckType;
+  deckValues: string[];
+  status: SessionStatus;
+  currentIssueKey: string | null;
+  jql?: string;
+}
 
 export interface CreateSessionInput {
   projectKey: string;
@@ -43,7 +55,7 @@ export const createSession = async (input: CreateSessionInput): Promise<SessionS
   };
 
   await storage.set(sessionKey(id), session);
-  await addSessionToProjectIndex(session.projectKey, session.id);
+  await addSessionToProjectIndex(session);
 
   const creatorProfile = await fetchCurrentUserProfile();
   const creatorParticipant: Participant = {
@@ -61,17 +73,12 @@ export const createSession = async (input: CreateSessionInput): Promise<SessionS
   });
 };
 
-export const listSessionsByProject = async (projectKey: string): Promise<Session[]> => {
-  const key = projectSessionsKey(projectKey);
-  const ids = ((await storage.get(key)) as string[]) ?? [];
-  if (!ids.length) {
-    return [];
+export const listSessionsByProject = async (projectKey: string): Promise<SessionListEntry[]> => {
+  const { entries, hadLegacyEntries } = await loadProjectSessionEntries(projectKey);
+  if (hadLegacyEntries) {
+    await storage.set(projectSessionsKey(projectKey), entries);
   }
-
-  const sessions = await Promise.all(ids.map(async (sessionId) => storage.get(sessionKey(sessionId)) as Promise<Session | undefined>));
-  return sessions
-    .filter((session): session is Session => Boolean(session))
-    .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  return entries;
 };
 
 export const getSession = async (
@@ -125,11 +132,10 @@ export const leaveSession = async (sessionId: string, accountId: string): Promis
   await deleteParticipant(sessionId, accountId);
 };
 
-const addSessionToProjectIndex = async (projectKey: string, sessionId: string): Promise<void> => {
-  const key = projectSessionsKey(projectKey);
-  const existing = ((await storage.get(key)) as string[]) ?? [];
-  const filtered = existing.filter((id) => id !== sessionId);
-  await storage.set(key, [sessionId, ...filtered]);
+const addSessionToProjectIndex = async (session: Session): Promise<void> => {
+  const { entries } = await loadProjectSessionEntries(session.projectKey);
+  const next: SessionListEntry[] = [toSessionListEntry(session), ...entries.filter((entry) => entry.id !== session.id)];
+  await storage.set(projectSessionsKey(session.projectKey), next);
 };
 
 interface JiraUserResponse {
@@ -165,6 +171,7 @@ export const setCurrentIssueKey = async (
   }
   session.currentIssueKey = issueKey;
   await storage.set(sessionKey(sessionId), session);
+  await addSessionToProjectIndex(session);
   const participants = await listParticipants(sessionId);
   return buildSnapshot(session, participants, { ...options, issueKeyOverride: issueKey ?? undefined });
 };
@@ -228,4 +235,58 @@ const listParticipants = async (sessionId: string): Promise<Participant[]> => {
   } while (cursor);
 
   return participants.sort((a, b) => a.joinedAt.localeCompare(b.joinedAt));
+};
+
+const toSessionListEntry = (session: Session): SessionListEntry => ({
+  id: session.id,
+  name: session.name,
+  projectKey: session.projectKey,
+  createdAt: session.createdAt,
+  deckType: session.deckType,
+  deckValues: session.deckValues,
+  status: session.status,
+  currentIssueKey: session.currentIssueKey,
+  jql: session.jql,
+});
+
+const isSessionListEntry = (value: unknown): value is SessionListEntry => {
+  if (!value || typeof value !== 'object') {
+    return false;
+  }
+  const entry = value as Partial<SessionListEntry>;
+  return (
+    typeof entry.id === 'string' &&
+    typeof entry.name === 'string' &&
+    typeof entry.projectKey === 'string' &&
+    typeof entry.createdAt === 'string' &&
+    typeof entry.deckType === 'string'
+  );
+};
+
+const loadProjectSessionEntries = async (
+  projectKey: string
+): Promise<{ entries: SessionListEntry[]; hadLegacyEntries: boolean }> => {
+  const key = projectSessionsKey(projectKey);
+  const rawEntries = ((await storage.get(key)) as unknown[]) ?? [];
+  let hadLegacyEntries = false;
+  const entries: SessionListEntry[] = [];
+
+  for (const entry of rawEntries) {
+    if (isSessionListEntry(entry)) {
+      if (entry.projectKey === projectKey) {
+        entries.push(entry);
+      }
+      continue;
+    }
+
+    hadLegacyEntries = true;
+    if (typeof entry === 'string') {
+      const session = (await storage.get(sessionKey(entry))) as Session | undefined;
+      if (session && session.projectKey === projectKey) {
+        entries.push(toSessionListEntry(session));
+      }
+    }
+  }
+
+  return { entries, hadLegacyEntries };
 };
