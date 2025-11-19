@@ -9,7 +9,7 @@ const participantPrefixKey = (sessionId: string) => `session:${sessionId}:partic
 const participantKey = (sessionId: string, accountId: string) => `${participantPrefixKey(sessionId)}${accountId}`;
 const projectSessionsKey = (projectKey: string) => `project:${projectKey}:sessions`;
 
-interface SessionListEntry {
+export interface SessionListEntry {
   id: string;
   name: string;
   projectKey: string;
@@ -289,4 +289,22 @@ const loadProjectSessionEntries = async (
   }
 
   return { entries, hadLegacyEntries };
+};
+
+export const updateSessionBacklog = async (
+  sessionId: string,
+  issueKeys: string[],
+  jql?: string | null
+): Promise<Session> => {
+  const session = (await storage.get(sessionKey(sessionId))) as Session | undefined;
+  if (!session) {
+    throw new Error('Session not found');
+  }
+  session.issueKeys = Array.from(new Set(issueKeys));
+  if (typeof jql === 'string') {
+    session.jql = jql;
+  }
+  await storage.set(sessionKey(sessionId), session);
+  await addSessionToProjectIndex(session);
+  return session;
 };

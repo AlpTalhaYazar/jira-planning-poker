@@ -138,6 +138,32 @@ describe('session vote privacy', () => {
   });
 });
 
+describe('session backlog persistence', () => {
+  beforeEach(() => {
+    testingApi.reset();
+  });
+
+  it('allows moderators to update backlog data', async () => {
+    testingApi.enqueueMyselfResponse({
+      accountId: 'moderator',
+      displayName: 'Moderator',
+      avatarUrls: { '48x48': 'm.png' },
+    });
+    const snapshot = await createSession({
+      projectKey: 'BACKLOG',
+      name: 'Backlog Session',
+      deckType: 'fibonacci',
+      deckValues: ['1', '2', '3'],
+      creatorAccountId: 'moderator',
+    });
+    const { updateSessionBacklog } = await import('../src/api/sessions');
+    await updateSessionBacklog(snapshot.session.id, ['TEST-1', 'TEST-2'], 'project = BACKLOG');
+    const stored = testingApi.getValue(`session:${snapshot.session.id}`);
+    expect(stored.issueKeys).toEqual(['TEST-1', 'TEST-2']);
+    expect(stored.jql).toBe('project = BACKLOG');
+  });
+});
+
 describe('session listing summaries', () => {
   beforeEach(() => {
     testingApi.reset();

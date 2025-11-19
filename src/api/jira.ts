@@ -5,6 +5,7 @@ interface GetIssuesParams {
   projectKey: string;
   jql?: string;
   maxResults?: number;
+  estimateFieldId?: string;
 }
 
 interface JiraSearchResponse {
@@ -26,6 +27,7 @@ export const getIssuesForProject = async ({
   projectKey,
   jql,
   maxResults,
+  estimateFieldId,
 }: GetIssuesParams): Promise<Issue[]> => {
   const effectiveMax = Math.min(Math.max(maxResults ?? DEFAULT_MAX_RESULTS, 1), 100);
   const effectiveJql =
@@ -33,6 +35,15 @@ export const getIssuesForProject = async ({
     (projectKey
       ? `project = "${projectKey}" AND statusCategory != Done ORDER BY updated DESC`
       : 'ORDER BY updated DESC');
+
+  const fields = Array.from(
+    new Set([
+      'summary',
+      'status',
+      ...(estimateFieldId ? [estimateFieldId] : []),
+      ...estimateFieldCandidates,
+    ])
+  );
 
   const response = await api
     .asUser()
@@ -44,7 +55,7 @@ export const getIssuesForProject = async ({
       body: JSON.stringify({
         jql: effectiveJql,
         maxResults: effectiveMax,
-        fields: ['summary', 'status', 'customfield_10016'],
+        fields,
       }),
     });
 
@@ -59,14 +70,15 @@ export const getIssuesForProject = async ({
     key: issue.key,
     summary: issue.fields.summary ?? 'No summary',
     status: issue.fields.status?.name ?? 'Unknown',
-    estimate: extractEstimate(issue.fields),
+    estimate: extractEstimate(issue.fields, estimateFieldId),
   }));
 };
 
 const estimateFieldCandidates = ['customfield_10016', 'customfield_10002'];
 
-const extractEstimate = (fields: Record<string, unknown>): string | undefined => {
-  for (const candidate of estimateFieldCandidates) {
+const extractEstimate = (fields: Record<string, unknown>, preferredFieldId?: string): string | undefined => {
+  const candidates = preferredFieldId ? [preferredFieldId, ...estimateFieldCandidates] : estimateFieldCandidates;
+  for (const candidate of candidates) {
     const value = fields[candidate];
     if (typeof value === 'number' || typeof value === 'string') {
       return String(value);

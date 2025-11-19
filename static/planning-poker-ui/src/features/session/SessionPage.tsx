@@ -12,8 +12,9 @@ import {
   getSession as fetchSessionDetails,
   revealIssue as revealIssueRequest,
   setCurrentIssue as setCurrentIssueRequest,
+  updateSessionBacklog as updateSessionBacklogRequest,
 } from '../../api/sessionsClient';
-import { POLLING_INTERVAL_MS } from '../../constants/realtime';
+import { MAX_POLLING_INTERVAL_MS, POLLING_INTERVAL_MS } from '../../constants/realtime';
 
 interface SessionPageProps {
   data: SessionWithParticipants;
@@ -75,6 +76,7 @@ export default function SessionPage({ data, onBack, onSessionData, viewerAccount
   const [actionError, setActionError] = useState<string | null>(null);
   const [isSubmittingAction, setIsSubmittingAction] = useState(false);
   const hasInitialisedIssueRef = useRef(false);
+  const backlogSyncRef = useRef<{ hash: string; jql?: string } | null>(null);
 
 
   useEffect(() => {
@@ -177,6 +179,31 @@ export default function SessionPage({ data, onBack, onSessionData, viewerAccount
     }
   }, [issues, session.currentIssueKey, currentIssueIndex, viewerIsModerator, session.id, onSessionData]);
 
+  useEffect(() => {
+    if (!viewerIsModerator || !issues.length) {
+      return;
+    }
+    const issueKeys = issues.map((issue) => issue.key);
+    const hash = issueKeys.join('|');
+    const normalizedJql = appliedJql || undefined;
+    const lastSync = backlogSyncRef.current;
+    if (lastSync && lastSync.hash === hash && lastSync.jql === normalizedJql) {
+      return;
+    }
+    backlogSyncRef.current = { hash, jql: normalizedJql };
+    let cancelled = false;
+    updateSessionBacklogRequest(session.id, issueKeys, normalizedJql)
+      .then(() => {
+        if (!cancelled) {
+          refreshSession();
+        }
+      })
+      .catch((err) => console.error('Failed to sync backlog', err));
+    return () => {
+      cancelled = true;
+    };
+  }, [viewerIsModerator, issues, appliedJql, session.id, refreshSession]);
+
   const handleSessionEvent = useCallback(
     (message: { sessionId?: string }) => {
       if (message?.sessionId === session.id) {
@@ -188,7 +215,14 @@ export default function SessionPage({ data, onBack, onSessionData, viewerAccount
 
   const logDebug = useCallback(
     (direction: 'incoming' | 'outgoing', eventName: string, payload: unknown) => {
-      onDebugEvent({ direction, event: eventName, payload });
+      const sanitizedPayload =
+        eventName === 'token' && payload && typeof payload === 'object'
+          ? {
+              relayUrl: (payload as { relayUrl?: string }).relayUrl,
+              expiresAt: (payload as { expiresAt?: string | null }).expiresAt,
+            }
+          : payload;
+      onDebugEvent({ direction, event: eventName, payload: sanitizedPayload });
     },
     [onDebugEvent]
   );
@@ -219,10 +253,26 @@ export default function SessionPage({ data, onBack, onSessionData, viewerAccount
     if (realtimeStatus !== 'disabled' && realtimeStatus !== 'error') {
       return;
     }
-    const interval = setInterval(() => {
-      refreshSession();
-    }, POLLING_INTERVAL_MS);
-    return () => clearInterval(interval);
+    let cancelled = false;
+    let delay = POLLING_INTERVAL_MS;
+    let timeout: ReturnType<typeof setTimeout> | null = null;
+
+    const poll = async () => {
+      if (cancelled) {
+        return;
+      }
+      await refreshSession();
+      delay = Math.min(delay * 2, MAX_POLLING_INTERVAL_MS);
+      timeout = setTimeout(poll, delay);
+    };
+
+    timeout = setTimeout(poll, delay);
+    return () => {
+      cancelled = true;
+      if (timeout) {
+        clearTimeout(timeout);
+      }
+    };
   }, [realtimeStatus, refreshSession]);
 
   const localParticipantId =
@@ -369,13 +419,20 @@ export default function SessionPage({ data, onBack, onSessionData, viewerAccount
         </button>
         <span className="session-name">{session.name}</span>
         {realtimeStatus !== 'connected' && (
-          <span className="meta-text" role="status">
-            {realtimeStatus === 'disabled'
-              ? 'Realtime relay unavailable – falling back to polling'
-              : realtimeStatus === 'error'
-                ? 'Realtime connection lost – retrying'
-                : 'Connecting to relay…'}
-          </span>
+          <>
+            <span className="meta-text" role="status">
+              {realtimeStatus === 'disabled'
+                ? 'Realtime relay unavailable – falling back to polling'
+                : realtimeStatus === 'error'
+                  ? 'Realtime connection lost – retrying'
+                  : 'Connecting to relay…'}
+            </span>
+            {(realtimeStatus === 'disabled' || realtimeStatus === 'error') && (
+              <button type="button" className="secondary" onClick={() => refreshSession()}>
+                Refresh now
+              </button>
+            )}
+          </>
         )}
       </div>
       <div className="filters-bar">

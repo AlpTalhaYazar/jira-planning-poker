@@ -8,6 +8,7 @@ import {
   leaveSession,
   listSessionsByProject,
   setCurrentIssueKey,
+  updateSessionBacklog,
 } from './api/sessions';
 import { recordVote, clearVotes, setIssueRevealState, toIssueVoteSnapshot } from './api/votes';
 import { getProjectConfig, setProjectConfig } from './api/config';
@@ -33,10 +34,12 @@ resolver.define('healthcheck', async () => ({
 resolver.define('getIssuesForProject', async (req) => {
   const { projectKey, jql, maxResults } = req.payload ?? {};
   const resolvedProjectKey = assertProjectContext(req, projectKey);
+  const config = await getProjectConfig(resolvedProjectKey);
   return getIssuesForProject({
     projectKey: resolvedProjectKey,
     jql,
     maxResults,
+    estimateFieldId: config.estimateFieldId,
   });
 });
 
@@ -217,6 +220,36 @@ resolver.define('setCurrentIssue', async (req) => {
     },
   });
   return updatedSnapshot;
+});
+
+resolver.define('updateSessionBacklog', async (req) => {
+  const { sessionId, issueKeys, jql } = req.payload ?? {};
+  const accountId = req.context?.accountId;
+  if (!sessionId || !accountId || !Array.isArray(issueKeys)) {
+    throw new Error('sessionId, issueKeys, and accountId are required');
+  }
+  const snapshot = await getSessionRecord(sessionId, { viewerAccountId: accountId });
+  if (!snapshot) {
+    throw new Error('Session not found');
+  }
+  ensureSessionInContext(req, snapshot.session.projectKey);
+  const participant = snapshot.participants.find((p) => p.accountId === accountId);
+  if (!participant?.isModerator) {
+    throw new Error('Only moderators can update the backlog.');
+  }
+  const normalizedIssueKeys = (issueKeys as unknown[]).filter(
+    (key): key is string => typeof key === 'string' && Boolean(key)
+  );
+  await updateSessionBacklog(sessionId, normalizedIssueKeys, jql);
+  await publishRelayEvent({
+    sessionId,
+    event: 'session.backlogUpdated',
+    payload: {
+      issueCount: normalizedIssueKeys.length,
+      actorId: accountId,
+    },
+  });
+  return { ok: true };
 });
 
 resolver.define('getProjectConfig', async (req) => {

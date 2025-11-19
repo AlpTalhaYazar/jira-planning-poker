@@ -46,6 +46,7 @@ export default function App() {
   const [configError, setConfigError] = useState<string | null>(null);
   const [isSavingConfig, setIsSavingConfig] = useState(false);
   const { events: debugEvents, pushEvent: pushDebugEvent } = useDebugEvents();
+  const showDebugToasts = import.meta.env.MODE !== 'production';
 
   useEffect(() => {
     let cancelled = false;
@@ -324,7 +325,7 @@ export default function App() {
 
   return (
     <div className="app-shell">
-      <RealtimeDebugToasts events={debugEvents} />
+      {showDebugToasts && <RealtimeDebugToasts events={debugEvents} />}
       <header className="app-header">
         <div>
           <p className="eyebrow">Jira Planning Poker</p>

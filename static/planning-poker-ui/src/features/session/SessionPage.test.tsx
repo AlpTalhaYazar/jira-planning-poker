@@ -18,6 +18,7 @@ vi.mock('../../api/sessionsClient', () => {
     getSession: vi.fn(),
     revealIssue: vi.fn(),
     setCurrentIssue: vi.fn(),
+    updateSessionBacklog: vi.fn(),
   };
   return mock;
 });
@@ -103,6 +104,7 @@ describe('SessionPage', () => {
     mockedSessionsClient.castVote.mockResolvedValue(defaultIssueState);
     mockedSessionsClient.clearVotes.mockResolvedValue(defaultIssueState);
     mockedSessionsClient.setCurrentIssue.mockResolvedValue(baseSession);
+    mockedSessionsClient.updateSessionBacklog.mockResolvedValue({ ok: true });
   });
 
   it('disables reveal action for non-moderators', async () => {

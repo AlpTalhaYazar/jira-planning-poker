@@ -3,7 +3,8 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "build": "forge deploy --verbose",
+    "build": "npm run build:ui && forge deploy --verbose",
+    "build:ui": "npm --prefix static/planning-poker-ui run build",
     "test": "npm run test:backend && npm run test:frontend",
     "test:backend": "vitest run",
     "test:frontend": "npm --prefix static/planning-poker-ui run test",

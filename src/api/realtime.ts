@@ -2,15 +2,15 @@ import api from '@forge/api';
 import { randomUUID } from 'crypto';
 import jwt from 'jsonwebtoken';
 
-const DEFAULT_BASE_URL = 'https://relay.alptalha.dev';
 const TOKEN_TTL_SECONDS = Number(process.env.RELAY_TOKEN_TTL ?? 300);
-
-const relayBaseUrl = () => process.env.RELAY_BASE_URL?.replace(/\/$/, '') || DEFAULT_BASE_URL;
 
 const relayApiKey = process.env.RELAY_API_KEY;
 const relayJwtSecret = process.env.RELAY_JWT_SECRET;
 let relayConfigChecked = false;
 let relayConfigValid = false;
+let cachedRelayBaseUrl: string | null = null;
+
+const normalizeRelayBaseUrl = () => process.env.RELAY_BASE_URL?.replace(/\/$/, '') ?? null;
 
 export interface RelayEvent {
   sessionId: string;
@@ -31,11 +31,24 @@ const validateRelayConfig = () => {
   if (!relayJwtSecret) {
     missing.push('RELAY_JWT_SECRET');
   }
+  const configuredBase = normalizeRelayBaseUrl();
+  if (!configuredBase) {
+    missing.push('RELAY_BASE_URL');
+  } else {
+    cachedRelayBaseUrl = configuredBase;
+  }
   relayConfigValid = missing.length === 0;
   if (!relayConfigValid) {
     console.warn(`[Realtime] Missing required realtime configuration: ${missing.join(', ')}. Relay features disabled.`);
   }
   return relayConfigValid;
+};
+
+const relayBaseUrl = () => {
+  if (!cachedRelayBaseUrl && !validateRelayConfig()) {
+    throw new Error('Realtime relay base URL is not configured.');
+  }
+  return cachedRelayBaseUrl as string;
 };
 
 export const isRelayEnabled = () => validateRelayConfig();

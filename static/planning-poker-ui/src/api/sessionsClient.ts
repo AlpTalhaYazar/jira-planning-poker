@@ -10,7 +10,7 @@ import type {
 } from '../types/poker';
 
 export interface GetIssuesRequest {
-  projectKey?: string;
+  projectKey: string;
   jql?: string;
   maxResults?: number;
 }
@@ -75,3 +75,6 @@ export const fetchIssuesForProject = async (params: GetIssuesRequest): Promise<I
 
 export const getRealtimeToken = async (sessionId: string): Promise<RealtimeTokenResponse> =>
   invoke<RealtimeTokenResponse>('getRealtimeToken', { sessionId });
+
+export const updateSessionBacklog = async (sessionId: string, issueKeys: string[], jql?: string) =>
+  invoke('updateSessionBacklog', { sessionId, issueKeys, jql });
