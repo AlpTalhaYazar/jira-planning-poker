@@ -1,5 +1,5 @@
-import { assertProjectContext, getContextProjectKey } from '../utils/context';
-import { requireProjectAdmin } from './projectPermissions';
+import { assertProjectContext, getContextProjectKey } from "../utils/context";
+import { requireProjectAdmin } from "./projectPermissions";
 
 interface ResolvingRequest {
   context?: {
@@ -18,7 +18,7 @@ export class ContextService {
   getAccountId(): string {
     const accountId = this.req.context?.accountId;
     if (!accountId) {
-      throw new Error('This action requires an authenticated Jira user.');
+      throw new Error("This action requires an authenticated Jira user.");
     }
     return accountId;
   }

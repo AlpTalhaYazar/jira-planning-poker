@@ -1,9 +1,9 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useState } from "react";
 
 export interface DebugEvent {
   id: string;
   timestamp: string;
-  direction: 'incoming' | 'outgoing';
+  direction: "incoming" | "outgoing";
   event: string;
   payload: unknown;
 }
@@ -17,16 +17,22 @@ export const useDebugEvents = () => {
     setEvents((current) => current.filter((event) => event.id !== id));
   }, []);
 
-  const pushEvent = useCallback((event: Omit<DebugEvent, 'id' | 'timestamp'>) => {
-    const id = typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`;
-    const entry: DebugEvent = {
-      ...event,
-      id,
-      timestamp: new Date().toISOString(),
-    };
-    setEvents((current) => [entry, ...current]);
-    setTimeout(() => removeEvent(id), DISPLAY_DURATION_MS);
-  }, [removeEvent]);
+  const pushEvent = useCallback(
+    (event: Omit<DebugEvent, "id" | "timestamp">) => {
+      const id =
+        typeof crypto !== "undefined" && "randomUUID" in crypto
+          ? crypto.randomUUID()
+          : `${Date.now()}-${Math.random()}`;
+      const entry: DebugEvent = {
+        ...event,
+        id,
+        timestamp: new Date().toISOString(),
+      };
+      setEvents((current) => [entry, ...current]);
+      setTimeout(() => removeEvent(id), DISPLAY_DURATION_MS);
+    },
+    [removeEvent]
+  );
 
   return { events, pushEvent };
 };

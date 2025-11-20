@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useState } from 'react';
-import { view } from '@forge/bridge';
-import SessionPage from './features/session/SessionPage';
+import { useCallback, useEffect, useState } from "react";
+import { view } from "@forge/bridge";
+import SessionPage from "./features/session/SessionPage";
 import {
   createSession as createSessionApi,
   joinSession as joinSessionApi,
@@ -8,11 +8,15 @@ import {
   listSessions,
   getProjectConfig,
   setProjectConfig,
-} from './api/sessionsClient';
-import type { ProjectConfig, SessionSummary, SessionWithParticipants } from './types/poker';
-import RealtimeDebugToasts from './components/RealtimeDebugToasts';
-import { useDebugEvents } from './hooks/useDebugEvents';
-import './App.css';
+} from "./api/sessionsClient";
+import type {
+  ProjectConfig,
+  SessionSummary,
+  SessionWithParticipants,
+} from "./types/poker";
+import RealtimeDebugToasts from "./components/RealtimeDebugToasts";
+import { useDebugEvents } from "./hooks/useDebugEvents";
+import "./App.css";
 
 interface ProjectPageContext {
   accountId?: string;
@@ -25,7 +29,21 @@ interface ProjectPageContext {
   };
 }
 
-const DEFAULT_FIBONACCI_DECK = ['0', '0.5', '1', '2', '3', '5', '8', '13', '20', '40', '100', '?', '☕'];
+const DEFAULT_FIBONACCI_DECK = [
+  "0",
+  "0.5",
+  "1",
+  "2",
+  "3",
+  "5",
+  "8",
+  "13",
+  "20",
+  "40",
+  "100",
+  "?",
+  "☕",
+];
 
 export default function App() {
   const [context, setContext] = useState<ProjectPageContext | null>(null);
@@ -36,17 +54,22 @@ export default function App() {
   const [sessionsError, setSessionsError] = useState<string | null>(null);
   const [isLoadingSessions, setIsLoadingSessions] = useState(false);
 
-  const [activeSession, setActiveSession] = useState<SessionWithParticipants | null>(null);
-  const [createSessionName, setCreateSessionName] = useState('');
-  const [createSessionJql, setCreateSessionJql] = useState('');
+  const [activeSession, setActiveSession] =
+    useState<SessionWithParticipants | null>(null);
+  const [createSessionName, setCreateSessionName] = useState("");
+  const [createSessionJql, setCreateSessionJql] = useState("");
   const [isCreatingSession, setIsCreatingSession] = useState(false);
-  const [sessionActionError, setSessionActionError] = useState<string | null>(null);
-  const [projectConfig, setProjectConfigState] = useState<ProjectConfig | null>(null);
+  const [sessionActionError, setSessionActionError] = useState<string | null>(
+    null
+  );
+  const [projectConfig, setProjectConfigState] = useState<ProjectConfig | null>(
+    null
+  );
   const [isConfigLoaded, setIsConfigLoaded] = useState(false);
   const [configError, setConfigError] = useState<string | null>(null);
   const [isSavingConfig, setIsSavingConfig] = useState(false);
   const { events: debugEvents, pushEvent: pushDebugEvent } = useDebugEvents();
-  const showDebugToasts = import.meta.env.MODE !== 'production';
+  const showDebugToasts = import.meta.env.MODE !== "production";
 
   useEffect(() => {
     let cancelled = false;
@@ -59,8 +82,8 @@ export default function App() {
         }
       } catch (err) {
         if (!cancelled) {
-          console.error('Failed to load Forge context', err);
-          setContextError('Unable to load project information.');
+          console.error("Failed to load Forge context", err);
+          setContextError("Unable to load project information.");
         }
       } finally {
         if (!cancelled) {
@@ -79,28 +102,28 @@ export default function App() {
   const projectName = context?.extension?.project?.name;
   const projectKey = context?.extension?.project?.key;
   const viewerAccountId = context?.accountId;
-  const effectiveDeckValues = projectConfig?.deckValues ?? DEFAULT_FIBONACCI_DECK;
-  const effectiveDeckType = projectConfig?.deckType ?? 'fibonacci';
+  const effectiveDeckValues =
+    projectConfig?.deckValues ?? DEFAULT_FIBONACCI_DECK;
+  const effectiveDeckType = projectConfig?.deckType ?? "fibonacci";
   const canEditProjectConfig = projectConfig?.canEdit ?? false;
   const effectiveDefaultJql =
-    createSessionJql || projectConfig?.defaultJql || (projectKey ? `project = "${projectKey}" AND statusCategory != Done` : '');
+    createSessionJql ||
+    projectConfig?.defaultJql ||
+    (projectKey ? `project = "${projectKey}" AND statusCategory != Done` : "");
 
-  const refreshSessions = useCallback(
-    async (key: string) => {
-      setIsLoadingSessions(true);
-      setSessionsError(null);
-      try {
-        const data = await listSessions({ projectKey: key });
-        setSessions(data);
-      } catch (err) {
-        console.error('Failed to load sessions', err);
-        setSessionsError('Unable to load sessions right now.');
-      } finally {
-        setIsLoadingSessions(false);
-      }
-    },
-    []
-  );
+  const refreshSessions = useCallback(async (key: string) => {
+    setIsLoadingSessions(true);
+    setSessionsError(null);
+    try {
+      const data = await listSessions({ projectKey: key });
+      setSessions(data);
+    } catch (err) {
+      console.error("Failed to load sessions", err);
+      setSessionsError("Unable to load sessions right now.");
+    } finally {
+      setIsLoadingSessions(false);
+    }
+  }, []);
 
   useEffect(() => {
     if (projectKey) {
@@ -111,8 +134,8 @@ export default function App() {
             const cfg = await getProjectConfig(projectKey);
             setProjectConfigState(cfg);
           } catch (err) {
-            console.error('Failed to load project config', err);
-            setConfigError('Unable to load project configuration.');
+            console.error("Failed to load project config", err);
+            setConfigError("Unable to load project configuration.");
           } finally {
             setIsConfigLoaded(true);
           }
@@ -123,16 +146,18 @@ export default function App() {
 
   const handleCreateSession = async () => {
     if (!projectKey) {
-      setSessionActionError('Project key missing from context.');
+      setSessionActionError("Project key missing from context.");
       return;
     }
     setIsCreatingSession(true);
     setSessionActionError(null);
     try {
-      const name = createSessionName.trim() || `Planning Poker – ${new Date().toLocaleDateString()}`;
+      const name =
+        createSessionName.trim() ||
+        `Planning Poker – ${new Date().toLocaleDateString()}`;
       pushDebugEvent({
-        direction: 'outgoing',
-        event: 'createSession',
+        direction: "outgoing",
+        event: "createSession",
         payload: { projectKey, name, deckType: effectiveDeckType },
       });
       const newSession = await createSessionApi({
@@ -142,13 +167,16 @@ export default function App() {
         deckValues: effectiveDeckValues,
         jql: createSessionJql.trim() || projectConfig?.defaultJql || undefined,
       });
-      setSessions((prev) => [newSession.session, ...prev.filter((session) => session.id !== newSession.session.id)]);
+      setSessions((prev) => [
+        newSession.session,
+        ...prev.filter((session) => session.id !== newSession.session.id),
+      ]);
       setActiveSession(newSession);
-      setCreateSessionName('');
-      setCreateSessionJql('');
+      setCreateSessionName("");
+      setCreateSessionJql("");
     } catch (err) {
-      console.error('Failed to create session', err);
-      setSessionActionError('Could not create session. Please try again.');
+      console.error("Failed to create session", err);
+      setSessionActionError("Could not create session. Please try again.");
     } finally {
       setIsCreatingSession(false);
     }
@@ -157,26 +185,37 @@ export default function App() {
   const handleOpenSession = async (sessionId: string) => {
     setSessionActionError(null);
     try {
-      pushDebugEvent({ direction: 'outgoing', event: 'joinSession', payload: { sessionId } });
+      pushDebugEvent({
+        direction: "outgoing",
+        event: "joinSession",
+        payload: { sessionId },
+      });
       const joined = await joinSessionApi(sessionId);
       setActiveSession(joined);
     } catch (err) {
-      console.error('Failed to join session', err);
-      setSessionActionError('Unable to join this session.');
+      console.error("Failed to join session", err);
+      setSessionActionError("Unable to join this session.");
     }
   };
 
-  const handleSessionDataUpdate = useCallback((data: SessionWithParticipants) => {
-    setActiveSession(data);
-  }, []);
+  const handleSessionDataUpdate = useCallback(
+    (data: SessionWithParticipants) => {
+      setActiveSession(data);
+    },
+    []
+  );
 
   const handleBackToList = async () => {
     if (activeSession) {
       try {
-        pushDebugEvent({ direction: 'outgoing', event: 'leaveSession', payload: { sessionId: activeSession.session.id } });
+        pushDebugEvent({
+          direction: "outgoing",
+          event: "leaveSession",
+          payload: { sessionId: activeSession.session.id },
+        });
         await leaveSessionApi(activeSession.session.id);
       } catch (err) {
-        console.warn('Failed to leave session gracefully', err);
+        console.warn("Failed to leave session gracefully", err);
       }
     }
     setActiveSession(null);
@@ -185,17 +224,26 @@ export default function App() {
     }
   };
 
-  const pageTitle = activeSession ? activeSession.session.name : 'Planning Poker Sessions';
+  const pageTitle = activeSession
+    ? activeSession.session.name
+    : "Planning Poker Sessions";
 
   const renderSessionList = () => (
     <div className="session-list">
       <div className="info-card">
-        <p>Sessions are shared across your Jira site. Create one for each refinement or sprint planning meeting.</p>
         <p>
-          <strong>Project:</strong> {projectName ?? 'Unknown'} ({projectKey ?? 'n/a'})
+          Sessions are shared across your Jira site. Create one for each
+          refinement or sprint planning meeting.
+        </p>
+        <p>
+          <strong>Project:</strong> {projectName ?? "Unknown"} (
+          {projectKey ?? "n/a"})
         </p>
         {!projectConfig?.estimateFieldId && (
-          <p className="error-text">Estimate field not configured. Apply-to-Jira will be disabled until you set one.</p>
+          <p className="error-text">
+            Estimate field not configured. Apply-to-Jira will be disabled until
+            you set one.
+          </p>
         )}
       </div>
       <div className="session-create-card">
@@ -216,11 +264,16 @@ export default function App() {
             type="text"
             value={createSessionJql}
             onChange={(event) => setCreateSessionJql(event.target.value)}
-            placeholder={`Defaults to project = "${projectKey ?? 'KEY'}"`}
+            placeholder={`Defaults to project = "${projectKey ?? "KEY"}"`}
           />
         </div>
-        <button type="button" className="primary" onClick={handleCreateSession} disabled={isCreatingSession}>
-          {isCreatingSession ? 'Creating…' : 'Create session'}
+        <button
+          type="button"
+          className="primary"
+          onClick={handleCreateSession}
+          disabled={isCreatingSession}
+        >
+          {isCreatingSession ? "Creating…" : "Create session"}
         </button>
       </div>
       {sessionActionError && <p className="error-text">{sessionActionError}</p>}
@@ -239,7 +292,11 @@ export default function App() {
               </header>
               <p>Deck: {session.deckType}</p>
               <p>Created {new Date(session.createdAt).toLocaleString()}</p>
-              <button type="button" className="primary" onClick={() => handleOpenSession(session.id)}>
+              <button
+                type="button"
+                className="primary"
+                onClick={() => handleOpenSession(session.id)}
+              >
                 Open session
               </button>
             </article>
@@ -252,7 +309,9 @@ export default function App() {
         {!projectConfig ? (
           <p>Loading configuration…</p>
         ) : !canEditProjectConfig ? (
-          <p className="meta-text">Only project admins can manage Planning Poker configuration.</p>
+          <p className="meta-text">
+            Only project admins can manage Planning Poker configuration.
+          </p>
         ) : (
           <>
             <div className="session-create-fields">
@@ -260,12 +319,12 @@ export default function App() {
               <input
                 id="estimate-field-id"
                 type="text"
-                value={projectConfig?.estimateFieldId ?? ''}
+                value={projectConfig?.estimateFieldId ?? ""}
                 onChange={(event) =>
                   setProjectConfigState((prev) => ({
-                    ...(prev ?? { projectKey: projectKey ?? '' }),
+                    ...(prev ?? { projectKey: projectKey ?? "" }),
                     estimateFieldId: event.target.value || undefined,
-                    deckType: prev?.deckType ?? 'fibonacci',
+                    deckType: prev?.deckType ?? "fibonacci",
                   }))
                 }
                 placeholder="customfield_10016"
@@ -277,15 +336,17 @@ export default function App() {
               <input
                 id="default-jql"
                 type="text"
-                value={projectConfig?.defaultJql ?? ''}
+                value={projectConfig?.defaultJql ?? ""}
                 onChange={(event) =>
                   setProjectConfigState((prev) => ({
-                    ...(prev ?? { projectKey: projectKey ?? '' }),
+                    ...(prev ?? { projectKey: projectKey ?? "" }),
                     defaultJql: event.target.value || undefined,
-                    deckType: prev?.deckType ?? 'fibonacci',
+                    deckType: prev?.deckType ?? "fibonacci",
                   }))
                 }
-                placeholder={`project = "${projectKey ?? 'KEY'}" AND statusCategory != Done`}
+                placeholder={`project = "${
+                  projectKey ?? "KEY"
+                }" AND statusCategory != Done`}
                 disabled={!canEditProjectConfig}
               />
             </div>
@@ -299,23 +360,32 @@ export default function App() {
                 setIsSavingConfig(true);
                 setConfigError(null);
                 try {
-                  pushDebugEvent({ direction: 'outgoing', event: 'setProjectConfig', payload: projectConfig });
+                  pushDebugEvent({
+                    direction: "outgoing",
+                    event: "setProjectConfig",
+                    payload: projectConfig,
+                  });
                   const saved = await setProjectConfig({
                     ...projectConfig,
                     projectKey,
-                    deckType: projectConfig.deckType ?? 'fibonacci',
+                    deckType: projectConfig.deckType ?? "fibonacci",
                   });
                   setProjectConfigState(saved);
                 } catch (err) {
-                  console.error('Failed to save project config', err);
-                  setConfigError('Unable to save project configuration.');
+                  console.error("Failed to save project config", err);
+                  setConfigError("Unable to save project configuration.");
                 } finally {
                   setIsSavingConfig(false);
                 }
               }}
-              disabled={isSavingConfig || !projectKey || !projectConfig || !canEditProjectConfig}
+              disabled={
+                isSavingConfig ||
+                !projectKey ||
+                !projectConfig ||
+                !canEditProjectConfig
+              }
             >
-              {isSavingConfig ? 'Saving…' : 'Save config'}
+              {isSavingConfig ? "Saving…" : "Save config"}
             </button>
           </>
         )}
@@ -334,8 +404,13 @@ export default function App() {
       </header>
       <main className="app-content">
         {isLoadingContext && <p>Loading Jira context…</p>}
-        {!isLoadingContext && contextError && <p className="error-text">{contextError}</p>}
-        {!isLoadingContext && !contextError && !activeSession && renderSessionList()}
+        {!isLoadingContext && contextError && (
+          <p className="error-text">{contextError}</p>
+        )}
+        {!isLoadingContext &&
+          !contextError &&
+          !activeSession &&
+          renderSessionList()}
         {!isLoadingContext && !contextError && activeSession && (
           <SessionPage
             data={activeSession}

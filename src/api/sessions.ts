@@ -1,15 +1,24 @@
-import api, { route, storage } from '@forge/api';
-import { startsWith } from '@forge/storage';
-import { randomUUID } from 'crypto';
-import type { Participant, Session, DeckType, SessionSnapshot, SessionStatus } from '../types/domain';
-import { logger } from '../utils/logger';
-import { isParticipant, isSession, isStringArray } from '../utils/type-guards';
-import { getIssueState, toIssueVoteSnapshot } from './votes';
+import api, { route, storage } from "@forge/api";
+import { startsWith } from "@forge/storage";
+import { randomUUID } from "crypto";
+import type {
+  Participant,
+  Session,
+  DeckType,
+  SessionSnapshot,
+  SessionStatus,
+} from "../types/domain";
+import { logger } from "../utils/logger";
+import { isParticipant, isSession, isStringArray } from "../utils/type-guards";
+import { getIssueState, toIssueVoteSnapshot } from "./votes";
 
 const sessionKey = (sessionId: string) => `session:${sessionId}`;
-const participantPrefixKey = (sessionId: string) => `session:${sessionId}:participant:`;
-const participantKey = (sessionId: string, accountId: string) => `${participantPrefixKey(sessionId)}${accountId}`;
-const projectSessionsKey = (projectKey: string) => `project:${projectKey}:sessions`;
+const participantPrefixKey = (sessionId: string) =>
+  `session:${sessionId}:participant:`;
+const participantKey = (sessionId: string, accountId: string) =>
+  `${participantPrefixKey(sessionId)}${accountId}`;
+const projectSessionsKey = (projectKey: string) =>
+  `project:${projectKey}:sessions`;
 
 export interface SessionListEntry {
   id: string;
@@ -38,7 +47,9 @@ export interface SessionViewOptions {
   includePrivateVotes?: boolean;
 }
 
-export const createSession = async (input: CreateSessionInput): Promise<SessionSnapshot> => {
+export const createSession = async (
+  input: CreateSessionInput
+): Promise<SessionSnapshot> => {
   const id = randomUUID();
   const createdAt = new Date().toISOString();
 
@@ -48,7 +59,7 @@ export const createSession = async (input: CreateSessionInput): Promise<SessionS
     projectKey: input.projectKey,
     creatorAccountId: input.creatorAccountId,
     createdAt,
-    status: 'active',
+    status: "active",
     deckType: input.deckType,
     deckValues: input.deckValues,
     issueKeys: [],
@@ -75,8 +86,12 @@ export const createSession = async (input: CreateSessionInput): Promise<SessionS
   });
 };
 
-export const listSessionsByProject = async (projectKey: string): Promise<SessionListEntry[]> => {
-  const { entries, hadLegacyEntries } = await loadProjectSessionEntries(projectKey);
+export const listSessionsByProject = async (
+  projectKey: string
+): Promise<SessionListEntry[]> => {
+  const { entries, hadLegacyEntries } = await loadProjectSessionEntries(
+    projectKey
+  );
   if (hadLegacyEntries) {
     await storage.set(projectSessionsKey(projectKey), entries);
   }
@@ -95,7 +110,10 @@ export const getSession = async (
   return buildSnapshot(session, participants, options);
 };
 
-export const joinSession = async (sessionId: string, issueKeyOverride?: string): Promise<SessionSnapshot> => {
+export const joinSession = async (
+  sessionId: string,
+  issueKeyOverride?: string
+): Promise<SessionSnapshot> => {
   const profile = await fetchCurrentUserProfile();
   const viewOptions: SessionViewOptions = {
     issueKeyOverride,
@@ -103,12 +121,14 @@ export const joinSession = async (sessionId: string, issueKeyOverride?: string):
   };
   const existing = await getSession(sessionId, viewOptions);
   if (!existing) {
-    throw new Error('Session not found');
+    throw new Error("Session not found");
   }
 
   const now = new Date().toISOString();
   const participants = [...existing.participants];
-  const existingParticipant = participants.find((p) => p.accountId === profile.accountId);
+  const existingParticipant = participants.find(
+    (p) => p.accountId === profile.accountId
+  );
 
   if (existingParticipant) {
     existingParticipant.lastSeenAt = now;
@@ -130,13 +150,19 @@ export const joinSession = async (sessionId: string, issueKeyOverride?: string):
   return buildSnapshot(existing.session, latestParticipants, viewOptions);
 };
 
-export const leaveSession = async (sessionId: string, accountId: string): Promise<void> => {
+export const leaveSession = async (
+  sessionId: string,
+  accountId: string
+): Promise<void> => {
   await deleteParticipant(sessionId, accountId);
 };
 
 const addSessionToProjectIndex = async (session: Session): Promise<void> => {
   const { entries } = await loadProjectSessionEntries(session.projectKey);
-  const next: SessionListEntry[] = [toSessionListEntry(session), ...entries.filter((entry) => entry.id !== session.id)];
+  const next: SessionListEntry[] = [
+    toSessionListEntry(session),
+    ...entries.filter((entry) => entry.id !== session.id),
+  ];
   await storage.set(projectSessionsKey(session.projectKey), next);
 };
 
@@ -146,19 +172,25 @@ interface JiraUserResponse {
   avatarUrls?: Record<string, string>;
 }
 
-const fetchCurrentUserProfile = async (): Promise<{ accountId: string; displayName: string; avatarUrl: string }> => {
+const fetchCurrentUserProfile = async (): Promise<{
+  accountId: string;
+  displayName: string;
+  avatarUrl: string;
+}> => {
   const response = await api.asUser().requestJira(route`/rest/api/3/myself`);
   if (!response.ok) {
-    throw new Error(`Failed to resolve current user profile (${response.status})`);
+    throw new Error(
+      `Failed to resolve current user profile (${response.status})`
+    );
   }
   const data = (await response.json()) as JiraUserResponse;
   if (!data.accountId) {
-    throw new Error('Current user profile missing accountId');
+    throw new Error("Current user profile missing accountId");
   }
   return {
     accountId: data.accountId,
-    displayName: data.displayName ?? 'Unknown teammate',
-    avatarUrl: data.avatarUrls?.['48x48'] ?? '',
+    displayName: data.displayName ?? "Unknown teammate",
+    avatarUrl: data.avatarUrls?.["48x48"] ?? "",
   };
 };
 
@@ -169,13 +201,16 @@ export const setCurrentIssueKey = async (
 ): Promise<SessionSnapshot> => {
   const session = await readSessionRecord(sessionId);
   if (!session) {
-    throw new Error('Session not found');
+    throw new Error("Session not found");
   }
   session.currentIssueKey = issueKey;
   await storage.set(sessionKey(sessionId), session);
   await addSessionToProjectIndex(session);
   const participants = await listParticipants(sessionId);
-  return buildSnapshot(session, participants, { ...options, issueKeyOverride: issueKey ?? undefined });
+  return buildSnapshot(session, participants, {
+    ...options,
+    issueKeyOverride: issueKey ?? undefined,
+  });
 };
 
 const buildSnapshot = async (
@@ -184,12 +219,18 @@ const buildSnapshot = async (
   options: SessionViewOptions = {}
 ): Promise<SessionSnapshot> => {
   const issueKey = resolveIssueKey(session, participants, options);
-  const currentIssueState = issueKey ? await getIssueState(session.id, issueKey) : null;
+  const currentIssueState = issueKey
+    ? await getIssueState(session.id, issueKey)
+    : null;
   return {
     session,
     participants,
     currentIssueState: currentIssueState
-      ? toIssueVoteSnapshot(currentIssueState, options.viewerAccountId, options.includePrivateVotes)
+      ? toIssueVoteSnapshot(
+          currentIssueState,
+          options.viewerAccountId,
+          options.includePrivateVotes
+        )
       : null,
   };
 };
@@ -204,7 +245,9 @@ const resolveIssueKey = (
       return options.issueKeyOverride;
     }
     if (options.viewerAccountId) {
-      const viewer = participants.find((participant) => participant.accountId === options.viewerAccountId);
+      const viewer = participants.find(
+        (participant) => participant.accountId === options.viewerAccountId
+      );
       if (viewer?.isModerator) {
         return options.issueKeyOverride;
       }
@@ -213,12 +256,20 @@ const resolveIssueKey = (
   return session.currentIssueKey;
 };
 
-
-const saveParticipant = async (sessionId: string, participant: Participant): Promise<void> => {
-  await storage.set(participantKey(sessionId, participant.accountId), participant);
+const saveParticipant = async (
+  sessionId: string,
+  participant: Participant
+): Promise<void> => {
+  await storage.set(
+    participantKey(sessionId, participant.accountId),
+    participant
+  );
 };
 
-const deleteParticipant = async (sessionId: string, accountId: string): Promise<void> => {
+const deleteParticipant = async (
+  sessionId: string,
+  accountId: string
+): Promise<void> => {
   await storage.delete(participantKey(sessionId, accountId));
 };
 
@@ -227,7 +278,7 @@ const listParticipants = async (sessionId: string): Promise<Participant[]> => {
   const participants: Participant[] = [];
   let cursor: string | undefined;
   do {
-    let query = storage.query().where('key', startsWith(prefix)).limit(50);
+    let query = storage.query().where("key", startsWith(prefix)).limit(50);
     if (cursor) {
       query = query.cursor(cursor);
     }
@@ -236,7 +287,10 @@ const listParticipants = async (sessionId: string): Promise<Participant[]> => {
       if (isParticipant(record.value)) {
         participants.push(record.value);
       } else {
-        logger.warn('Skipping malformed participant record', { sessionId, key: record.key });
+        logger.warn("Skipping malformed participant record", {
+          sessionId,
+          key: record.key,
+        });
       }
     }
     cursor = nextCursor;
@@ -258,20 +312,21 @@ const toSessionListEntry = (session: Session): SessionListEntry => ({
 });
 
 const isSessionListEntry = (value: unknown): value is SessionListEntry => {
-  if (!value || typeof value !== 'object') {
+  if (!value || typeof value !== "object") {
     return false;
   }
   const entry = value as Partial<SessionListEntry>;
   return (
-    typeof entry.id === 'string' &&
-    typeof entry.name === 'string' &&
-    typeof entry.projectKey === 'string' &&
-    typeof entry.createdAt === 'string' &&
-    typeof entry.deckType === 'string' &&
-    typeof entry.status === 'string' &&
+    typeof entry.id === "string" &&
+    typeof entry.name === "string" &&
+    typeof entry.projectKey === "string" &&
+    typeof entry.createdAt === "string" &&
+    typeof entry.deckType === "string" &&
+    typeof entry.status === "string" &&
     isStringArray(entry.deckValues) &&
-    (typeof entry.currentIssueKey === 'string' || entry.currentIssueKey === null) &&
-    (entry.jql === undefined || typeof entry.jql === 'string')
+    (typeof entry.currentIssueKey === "string" ||
+      entry.currentIssueKey === null) &&
+    (entry.jql === undefined || typeof entry.jql === "string")
   );
 };
 
@@ -282,7 +337,7 @@ const loadProjectSessionEntries = async (
   const storedValue = await storage.get(key);
   const rawEntries = Array.isArray(storedValue) ? storedValue : [];
   if (storedValue && !Array.isArray(storedValue)) {
-    logger.warn('Ignoring malformed session index payload', { projectKey });
+    logger.warn("Ignoring malformed session index payload", { projectKey });
   }
   let hadLegacyEntries = false;
   const entries: SessionListEntry[] = [];
@@ -296,12 +351,15 @@ const loadProjectSessionEntries = async (
     }
 
     hadLegacyEntries = true;
-    if (typeof entry === 'string') {
+    if (typeof entry === "string") {
       const session = await readSessionRecord(entry);
       if (session && session.projectKey === projectKey) {
         entries.push(toSessionListEntry(session));
       } else if (!session) {
-        logger.warn('Failed to hydrate legacy session entry', { sessionId: entry, projectKey });
+        logger.warn("Failed to hydrate legacy session entry", {
+          sessionId: entry,
+          projectKey,
+        });
       }
     }
   }
@@ -316,10 +374,10 @@ export const updateSessionBacklog = async (
 ): Promise<Session> => {
   const session = await readSessionRecord(sessionId);
   if (!session) {
-    throw new Error('Session not found');
+    throw new Error("Session not found");
   }
   session.issueKeys = Array.from(new Set(issueKeys));
-  if (typeof jql === 'string') {
+  if (typeof jql === "string") {
     session.jql = jql;
   }
   await storage.set(sessionKey(sessionId), session);
@@ -327,13 +385,15 @@ export const updateSessionBacklog = async (
   return session;
 };
 
-const readSessionRecord = async (sessionId: string): Promise<Session | null> => {
+const readSessionRecord = async (
+  sessionId: string
+): Promise<Session | null> => {
   const stored = await storage.get(sessionKey(sessionId));
   if (!stored) {
     return null;
   }
   if (!isSession(stored)) {
-    logger.warn('Skipping malformed session record', { sessionId });
+    logger.warn("Skipping malformed session record", { sessionId });
     return null;
   }
   return stored;

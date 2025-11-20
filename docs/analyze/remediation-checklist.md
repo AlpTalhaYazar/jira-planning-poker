@@ -45,24 +45,24 @@ Tracking every finding from `docs/analyze/audit-report.md`. Items will be checke
 
 ## Testing & Quality Gaps
 
-- [ ] Backend unit test suite for `src/api/*` (sessions, votes, jira, realtime)
-- [ ] Authorization-focused integration tests validating project scoping + RBAC
-- [ ] Jira contract tests for search + estimate application payloads
-- [ ] Frontend component/state tests (Session flows, realtime fallbacks, permissions)
-- [ ] End-to-end smoke tests covering session creation → voting → estimation
-- [ ] Tooling hooks: `lint`, `test`, `typecheck` scripts wired into CI
+- [x] Backend unit test suite for `src/api/*` (sessions, votes, jira, realtime)
+- [x] Authorization-focused integration tests validating project scoping + RBAC
+- [x] Jira contract tests for search + estimate application payloads
+- [x] Frontend component/state tests (Session flows, realtime fallbacks, permissions)
+- [x] End-to-end smoke tests covering session creation → voting → estimation
+- [x] Tooling hooks: `lint`, `test`, `typecheck` scripts wired into CI
 
 ## Documentation Corrections
 
-- [ ] Update `docs/04-architecture.md` with relay topology, JWT flow, Socket.IO usage
-- [ ] Sync `docs/05-manifest-draft.yml` with actual manifest (dist path, scopes, vars)
-- [ ] Revise `docs/06-implementation-plan.md` to reflect relay + backlog persistence work
-- [ ] Update `docs/07-repo-structure.md` to match current tree/tests/docs
-- [ ] Add security/compliance documentation (scopes, RBAC, relay secret management)
+- [x] Update `docs/04-architecture.md` with relay topology, JWT flow, Socket.IO usage
+- [x] Sync `docs/05-manifest-draft.yml` with actual manifest (dist path, scopes, vars)
+- [x] Revise `docs/06-implementation-plan.md` to reflect relay + backlog persistence work
+- [x] Update `docs/07-repo-structure.md` to match current tree/tests/docs
+- [x] Add security/compliance documentation (scopes, RBAC, relay secret management)
 
 ## Risk & Readiness Follow-ups
 
-- [ ] Lock down data access (project validation, moderator-only reveal, Jira `asUser`)
-- [ ] Stabilize storage model (per-entity keys, backlog persistence)
-- [ ] Ship thorough tests & build automation before release
-- [ ] Document and monitor relay service configuration & health
+- [x] Lock down data access (project validation, moderator-only reveal, Jira `asUser`)
+- [x] Stabilize storage model (per-entity keys, backlog persistence)
+- [x] Ship thorough tests & build automation before release
+- [x] Document and monitor relay service configuration & health

@@ -1,18 +1,12 @@
-import type { ComponentProps } from "react";
+import { jsx as _jsx } from "react/jsx-runtime";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { vi } from "vitest";
 import SessionPage from "./SessionPage";
-import type { SessionWithParticipants } from "../../types/poker";
-
-const useRealtimeSessionMock = vi.fn<(args: unknown) => { status: string }>(
-  () => ({ status: "connected" })
-);
-
+const useRealtimeSessionMock = vi.fn(() => ({ status: "connected" }));
 vi.mock("../../hooks/useRealtimeSession", () => ({
-  useRealtimeSession: (args: unknown) => useRealtimeSessionMock(args),
+  useRealtimeSession: (args) => useRealtimeSessionMock(args),
 }));
-
 vi.mock("../../api/sessionsClient", () => {
   const mock = {
     applyEstimate: vi.fn(),
@@ -26,11 +20,9 @@ vi.mock("../../api/sessionsClient", () => {
   };
   return mock;
 });
-
 import * as sessionsClient from "../../api/sessionsClient";
 const mockedSessionsClient = vi.mocked(sessionsClient, { deep: true });
-
-const baseSession: SessionWithParticipants = {
+const baseSession = {
   session: {
     id: "session-1",
     name: "Demo Session",
@@ -79,7 +71,6 @@ const baseSession: SessionWithParticipants = {
     },
   },
 };
-
 const defaultIssue = [
   {
     key: "ISSUE-123",
@@ -89,13 +80,9 @@ const defaultIssue = [
     link: "/browse/ISSUE-123",
   },
 ];
-
-const defaultIssueState = baseSession.currentIssueState!;
-
-const renderSession = (
-  overrides?: Partial<ComponentProps<typeof SessionPage>>
-) => {
-  const props: ComponentProps<typeof SessionPage> = {
+const defaultIssueState = baseSession.currentIssueState;
+const renderSession = (overrides) => {
+  const props = {
     data: baseSession,
     onBack: vi.fn(),
     onSessionData: vi.fn(),
@@ -104,9 +91,8 @@ const renderSession = (
     onDebugEvent: vi.fn(),
     ...overrides,
   };
-  return render(<SessionPage {...props} />);
+  return render(_jsx(SessionPage, { ...props }));
 };
-
 describe("SessionPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -119,7 +105,6 @@ describe("SessionPage", () => {
     mockedSessionsClient.setCurrentIssue.mockResolvedValue(baseSession);
     mockedSessionsClient.updateSessionBacklog.mockResolvedValue({ ok: true });
   });
-
   it("disables reveal action for non-moderators", async () => {
     renderSession({ viewerAccountId: "viewer" });
     const revealButton = await screen.findByRole("button", {
@@ -130,7 +115,6 @@ describe("SessionPage", () => {
       expect(mockedSessionsClient.fetchIssuesForProject).toHaveBeenCalled()
     );
   });
-
   it("invokes reveal action when moderator clicks reveal", async () => {
     const user = userEvent.setup();
     renderSession({ viewerAccountId: "moderator" });
@@ -147,9 +131,8 @@ describe("SessionPage", () => {
     );
     expect(mockedSessionsClient.getSession).toHaveBeenCalled();
   });
-
   it("shows local selection while keeping other votes hidden before reveal", async () => {
-    const hiddenData: SessionWithParticipants = {
+    const hiddenData = {
       ...baseSession,
       currentIssueState: {
         issueKey: "ISSUE-123",
@@ -167,7 +150,6 @@ describe("SessionPage", () => {
         },
       },
     };
-
     renderSession({ data: hiddenData, viewerAccountId: "viewer" });
     await waitFor(() =>
       expect(mockedSessionsClient.fetchIssuesForProject).toHaveBeenCalled()
@@ -176,7 +158,6 @@ describe("SessionPage", () => {
     expect(selectedCard).toHaveClass("selected");
     expect(screen.queryByText(/Revealed vote/)).toBeNull();
   });
-
   it("renders manual refresh messaging when realtime is disabled", async () => {
     useRealtimeSessionMock.mockReturnValue({ status: "disabled" });
     renderSession({ viewerAccountId: "viewer" });

@@ -1,4 +1,4 @@
-import type { Issue } from '../types/poker';
+import type { Issue } from "../types/poker";
 
 interface IssuePanelProps {
   issue: Issue | undefined;
@@ -36,7 +36,7 @@ export function IssuePanel({
   if (!issue) {
     return (
       <section className="issue-panel">
-        <p>{isLoading ? 'Loading issues from Jira…' : 'No issue selected.'}</p>
+        <p>{isLoading ? "Loading issues from Jira…" : "No issue selected."}</p>
       </section>
     );
   }
@@ -45,7 +45,9 @@ export function IssuePanel({
     <section className="issue-panel">
       <header className="issue-panel__header">
         <div>
-          <p className="eyebrow">Issue {index + 1} of {total}</p>
+          <p className="eyebrow">
+            Issue {index + 1} of {total}
+          </p>
           <h2>{issue.key}</h2>
         </div>
         <span className="status-pill">{issue.status}</span>
@@ -54,7 +56,7 @@ export function IssuePanel({
       <dl className="issue-panel__meta">
         <div>
           <dt>Current estimate</dt>
-          <dd>{issue.estimate ?? '—'}</dd>
+          <dd>{issue.estimate ?? "—"}</dd>
         </div>
         {issue.link && (
           <div>
@@ -69,7 +71,12 @@ export function IssuePanel({
       </dl>
 
       <div className="issue-panel__actions">
-        <button type="button" className="secondary" onClick={onPrevious} disabled={index === 0 || !canControl || isBusy}>
+        <button
+          type="button"
+          className="secondary"
+          onClick={onPrevious}
+          disabled={index === 0 || !canControl || isBusy}
+        >
           Previous issue
         </button>
         <button
@@ -92,7 +99,12 @@ export function IssuePanel({
           </button>
         ) : (
           <>
-            <button type="button" className="secondary" onClick={onResetVotes} disabled={!canControl || isBusy}>
+            <button
+              type="button"
+              className="secondary"
+              onClick={onResetVotes}
+              disabled={!canControl || isBusy}
+            >
               Revote
             </button>
             <button

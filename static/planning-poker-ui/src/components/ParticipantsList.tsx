@@ -1,4 +1,4 @@
-import type { Participant, Vote } from '../types/poker';
+import type { Participant, Vote } from "../types/poker";
 
 interface ParticipantsListProps {
   participants: Participant[];
@@ -6,7 +6,11 @@ interface ParticipantsListProps {
   isRevealed: boolean;
 }
 
-export function ParticipantsList({ participants, votes, isRevealed }: ParticipantsListProps) {
+export function ParticipantsList({
+  participants,
+  votes,
+  isRevealed,
+}: ParticipantsListProps) {
   return (
     <section className="participants-panel">
       <header className="panel-heading">
@@ -21,15 +25,20 @@ export function ParticipantsList({ participants, votes, isRevealed }: Participan
             <li key={participant.accountId}>
               <span className="avatar" aria-hidden>
                 {participant.avatarUrl ? (
-                  <img src={participant.avatarUrl} alt={participant.displayName} />
+                  <img
+                    src={participant.avatarUrl}
+                    alt={participant.displayName}
+                  />
                 ) : (
                   participant.displayName.charAt(0)
                 )}
               </span>
               <div className="participant-detail">
                 <p className="participant-name">
-                  {participant.displayName}{' '}
-                  {participant.isModerator && <span className="role-chip">Moderator</span>}
+                  {participant.displayName}{" "}
+                  {participant.isModerator && (
+                    <span className="role-chip">Moderator</span>
+                  )}
                 </p>
                 <p className="vote-state">
                   {isRevealed && vote ? (
@@ -37,9 +46,9 @@ export function ParticipantsList({ participants, votes, isRevealed }: Participan
                       Revealed vote: <strong>{vote.value}</strong>
                     </>
                   ) : hasVoted ? (
-                    'Has voted'
+                    "Has voted"
                   ) : (
-                    'Waiting for vote'
+                    "Waiting for vote"
                   )}
                 </p>
               </div>

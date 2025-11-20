@@ -1,4 +1,4 @@
-type LogLevel = 'debug' | 'info' | 'warn' | 'error';
+type LogLevel = "debug" | "info" | "warn" | "error";
 
 interface LogEntry {
   level: LogLevel;
@@ -17,16 +17,16 @@ const log = (level: LogLevel, message: string, payload?: unknown) => {
 
   const serialized = safeStringify(entry);
   switch (level) {
-    case 'debug':
+    case "debug":
       console.debug(serialized);
       break;
-    case 'info':
+    case "info":
       console.info(serialized);
       break;
-    case 'warn':
+    case "warn":
       console.warn(serialized);
       break;
-    case 'error':
+    case "error":
     default:
       console.error(serialized);
       break;
@@ -41,7 +41,7 @@ const normalizePayload = (payload: unknown): unknown => {
       stack: payload.stack,
     };
   }
-  if (!payload || typeof payload !== 'object') {
+  if (!payload || typeof payload !== "object") {
     return payload;
   }
   try {
@@ -64,8 +64,8 @@ const safeStringify = (entry: LogEntry): string => {
 };
 
 export const logger = {
-  debug: (message: string, payload?: unknown) => log('debug', message, payload),
-  info: (message: string, payload?: unknown) => log('info', message, payload),
-  warn: (message: string, payload?: unknown) => log('warn', message, payload),
-  error: (message: string, payload?: unknown) => log('error', message, payload),
+  debug: (message: string, payload?: unknown) => log("debug", message, payload),
+  info: (message: string, payload?: unknown) => log("info", message, payload),
+  warn: (message: string, payload?: unknown) => log("warn", message, payload),
+  error: (message: string, payload?: unknown) => log("error", message, payload),
 };

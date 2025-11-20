@@ -11,12 +11,10 @@ modules:
       handler: index.handler
     - key: planning-poker-cleanup
       handler: cleanup.handler
-  trigger:
+  scheduledTrigger:
     - key: planning-poker-cleanup-trigger
       function: planning-poker-cleanup
-      events:
-        - schedule:
-            interval: day
+      interval: day
 resources:
   - key: planning-poker-ui
     path: static/planning-poker-ui/dist

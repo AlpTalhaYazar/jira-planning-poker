@@ -1,4 +1,4 @@
-import { cleanupExpiredSessions } from './tasks/cleanupSessions';
+import { cleanupExpiredSessions } from "./tasks/cleanupSessions";
 
 export const handler = async () => {
   await cleanupExpiredSessions();

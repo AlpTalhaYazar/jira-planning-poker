@@ -1,4 +1,4 @@
-import type { RequestInit, Response } from '@forge/api';
+import type { RequestInit, Response } from "@forge/api";
 
 type RequestHandler = {
   matches: (url: string) => boolean;
@@ -15,16 +15,19 @@ const clone = <T>(value: T): T => {
   if (value === undefined || value === null) {
     return value;
   }
-  if (typeof structuredClone === 'function') {
+  if (typeof structuredClone === "function") {
     return structuredClone(value);
   }
   return JSON.parse(JSON.stringify(value));
 };
 
-const buildResponse = (body: unknown, overrides?: Partial<Response>): Response => ({
+const buildResponse = (
+  body: unknown,
+  overrides?: Partial<Response>
+): Response => ({
   ok: overrides?.ok ?? true,
   status: overrides?.status ?? 200,
-  statusText: overrides?.statusText ?? 'OK',
+  statusText: overrides?.statusText ?? "OK",
   headers: overrides?.headers ?? {
     append() {},
     delete() {},
@@ -34,12 +37,12 @@ const buildResponse = (body: unknown, overrides?: Partial<Response>): Response =
     forEach() {},
   },
   json: async () => body,
-  text: async () => (typeof body === 'string' ? body : JSON.stringify(body)),
+  text: async () => (typeof body === "string" ? body : JSON.stringify(body)),
   arrayBuffer: async () => new ArrayBuffer(0),
 });
 
 const toMatcher = (matcher: string | RegExp | ((url: string) => boolean)) => {
-  if (typeof matcher === 'function') {
+  if (typeof matcher === "function") {
     return matcher;
   }
   if (matcher instanceof RegExp) {
@@ -51,27 +54,37 @@ const toMatcher = (matcher: string | RegExp | ((url: string) => boolean)) => {
 export const createForgeApiMock = () => {
   const store = new Map<string, any>();
   const profileQueue: JiraUserResponse[] = [];
-  const handlers: Record<'user' | 'app', RequestHandler[]> = {
+  const handlers: Record<"user" | "app", RequestHandler[]> = {
     user: [],
     app: [],
   };
 
-  const request = async (scope: 'user' | 'app', url: string, init?: RequestInit): Promise<Response> => {
+  const request = async (
+    scope: "user" | "app",
+    url: string,
+    init?: RequestInit
+  ): Promise<Response> => {
     for (const handler of handlers[scope]) {
       if (handler.matches(url)) {
         return handler.handle(url, init);
       }
     }
 
-    if (scope === 'user' && url.includes('/rest/api/3/myself')) {
+    if (scope === "user" && url.includes("/rest/api/3/myself")) {
       const profile = profileQueue.shift();
       if (!profile) {
-        return buildResponse({ message: 'No mock profile queued' }, { ok: false, status: 404 });
+        return buildResponse(
+          { message: "No mock profile queued" },
+          { ok: false, status: 404 }
+        );
       }
       return buildResponse(profile);
     }
 
-    return buildResponse({ message: `Unhandled ${scope} Jira request for ${url}` }, { ok: false, status: 501 });
+    return buildResponse(
+      { message: `Unhandled ${scope} Jira request for ${url}` },
+      { ok: false, status: 501 }
+    );
   };
 
   const storage = {
@@ -101,13 +114,15 @@ export const createForgeApiMock = () => {
       };
     },
     query() {
-      let prefix = '';
+      let prefix = "";
       let limitValue = 20;
       let cursorValue: number | undefined;
       const builder = {
         where(field: string, condition: { condition: string; value: string }) {
-          if (field !== 'key' || condition.condition !== 'STARTS_WITH') {
-            throw new Error('Mock storage only supports startsWith queries on key');
+          if (field !== "key" || condition.condition !== "STARTS_WITH") {
+            throw new Error(
+              "Mock storage only supports startsWith queries on key"
+            );
           }
           prefix = condition.value;
           return builder;
@@ -121,11 +136,19 @@ export const createForgeApiMock = () => {
           return builder;
         },
         async getMany() {
-          const entries = Array.from(store.entries()).filter(([key]) => key.startsWith(prefix));
+          const entries = Array.from(store.entries()).filter(([key]) =>
+            key.startsWith(prefix)
+          );
           const start = cursorValue ?? 0;
           const slice = entries.slice(start, start + limitValue);
-          const results = slice.map(([key, value]) => ({ key, value: clone(value) }));
-          const nextCursor = start + slice.length < entries.length ? String(start + slice.length) : undefined;
+          const results = slice.map(([key, value]) => ({
+            key,
+            value: clone(value),
+          }));
+          const nextCursor =
+            start + slice.length < entries.length
+              ? String(start + slice.length)
+              : undefined;
           return { results, nextCursor };
         },
         async getOne() {
@@ -140,11 +163,17 @@ export const createForgeApiMock = () => {
     },
   };
 
-  const defaultRoute = (strings: TemplateStringsArray, ...values: Array<string | number>): string =>
-    strings.reduce((acc, part, index) => `${acc}${part}${values[index] ?? ''}`, '');
+  const defaultRoute = (
+    strings: TemplateStringsArray,
+    ...values: Array<string | number>
+  ): string =>
+    strings.reduce(
+      (acc, part, index) => `${acc}${part}${values[index] ?? ""}`,
+      ""
+    );
 
   const registerHandler = (
-    scope: 'user' | 'app',
+    scope: "user" | "app",
     matcher: string | RegExp | ((url: string) => boolean),
     handle: (url: string, init?: RequestInit) => Promise<Response>
   ) => {
@@ -178,20 +207,28 @@ export const createForgeApiMock = () => {
       profileQueue.length = 0;
       resetHandlers();
     },
-    onUserRequest(matcher: string | RegExp | ((url: string) => boolean), handler: RequestHandler['handle']) {
-      registerHandler('user', matcher, handler);
+    onUserRequest(
+      matcher: string | RegExp | ((url: string) => boolean),
+      handler: RequestHandler["handle"]
+    ) {
+      registerHandler("user", matcher, handler);
     },
-    onAppRequest(matcher: string | RegExp | ((url: string) => boolean), handler: RequestHandler['handle']) {
-      registerHandler('app', matcher, handler);
+    onAppRequest(
+      matcher: string | RegExp | ((url: string) => boolean),
+      handler: RequestHandler["handle"]
+    ) {
+      registerHandler("app", matcher, handler);
     },
   };
 
   const api = {
     asUser: () => ({
-      requestJira: (url: string, init?: RequestInit) => request('user', typeof url === 'string' ? url : String(url), init),
+      requestJira: (url: string, init?: RequestInit) =>
+        request("user", typeof url === "string" ? url : String(url), init),
     }),
     asApp: () => ({
-      requestJira: (url: string, init?: RequestInit) => request('app', typeof url === 'string' ? url : String(url), init),
+      requestJira: (url: string, init?: RequestInit) =>
+        request("app", typeof url === "string" ? url : String(url), init),
     }),
   };
 

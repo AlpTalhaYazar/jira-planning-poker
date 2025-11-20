@@ -1,6 +1,6 @@
-export type DeckType = 'fibonacci' | 'tshirt' | 'powers-of-two' | 'custom';
+export type DeckType = "fibonacci" | "tshirt" | "powers-of-two" | "custom";
 
-export type SessionStatus = 'active' | 'closed';
+export type SessionStatus = "active" | "closed";
 
 export interface Session {
   id: string;
