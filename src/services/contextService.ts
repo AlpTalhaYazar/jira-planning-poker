@@ -1,8 +1,19 @@
 import { assertProjectContext, getContextProjectKey } from '../utils/context';
 import { requireProjectAdmin } from './projectPermissions';
 
+interface ResolvingRequest {
+  context?: {
+    accountId?: string;
+    extension?: {
+      project?: {
+        key?: string;
+      };
+    };
+  };
+}
+
 export class ContextService {
-  constructor(private readonly req: any) {}
+  constructor(private readonly req: ResolvingRequest) {}
 
   getAccountId(): string {
     const accountId = this.req.context?.accountId;

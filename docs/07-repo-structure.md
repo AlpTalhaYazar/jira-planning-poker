@@ -40,13 +40,17 @@
 │ ├── 05-manifest-draft.yml
 │ ├── 06-implementation-plan.md
 │ ├── 07-repo-structure.md
+│ ├── 08-security.md
 │ └── analyze/
 │   ├── audit-report.md
 │   └── remediation-checklist.md
 └── tests/
   ├── setup.ts / helpers
+  ├── forge-api-mock.ts
+  ├── contextService.test.ts
   ├── sessions.test.ts
   ├── votes.test.ts
   ├── jira.test.ts
   ├── realtime.test.ts
-  └── cleanupSessions.test.ts
+  ├── cleanupSessions.test.ts
+  └── smoke.test.ts

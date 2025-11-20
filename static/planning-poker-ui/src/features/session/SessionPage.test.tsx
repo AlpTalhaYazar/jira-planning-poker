@@ -5,8 +5,10 @@ import { vi } from 'vitest';
 import SessionPage from './SessionPage';
 import type { SessionWithParticipants } from '../../types/poker';
 
+const useRealtimeSessionMock = vi.fn<(args: unknown) => { status: string }>(() => ({ status: 'connected' }));
+
 vi.mock('../../hooks/useRealtimeSession', () => ({
-  useRealtimeSession: () => ({ status: 'connected' }),
+  useRealtimeSession: (args: unknown) => useRealtimeSessionMock(args),
 }));
 
 vi.mock('../../api/sessionsClient', () => {
@@ -98,6 +100,7 @@ const renderSession = (overrides?: Partial<ComponentProps<typeof SessionPage>>) 
 describe('SessionPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    useRealtimeSessionMock.mockReturnValue({ status: 'connected' });
     mockedSessionsClient.fetchIssuesForProject.mockResolvedValue(defaultIssue);
     mockedSessionsClient.getSession.mockResolvedValue(baseSession);
     mockedSessionsClient.revealIssue.mockResolvedValue(defaultIssueState);
@@ -153,4 +156,9 @@ describe('SessionPage', () => {
     expect(screen.queryByText(/Revealed vote/)).toBeNull();
   });
 
+  it('renders manual refresh messaging when realtime is disabled', async () => {
+    useRealtimeSessionMock.mockReturnValue({ status: 'disabled' });
+    renderSession({ viewerAccountId: 'viewer' });
+    expect(await screen.findByText(/falling back to polling/i)).toBeInTheDocument();
+  });
 });

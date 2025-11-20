@@ -26,7 +26,7 @@ triggers:
           interval: day
 
 app:
-  id: your-app-id-here
+  id: ari:cloud:ecosystem::app/cdd0e543-34ee-4766-9a8c-b83151acc5f8
   name: Planning Poker for Jira
 
 permissions:
