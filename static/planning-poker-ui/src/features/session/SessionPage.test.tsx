@@ -152,4 +152,5 @@ describe('SessionPage', () => {
     expect(selectedCard).toHaveClass('selected');
     expect(screen.queryByText(/Revealed vote/)).toBeNull();
   });
+
 });

@@ -3,26 +3,35 @@
 .
 ├── manifest.yml
 ├── src/
-│ ├── index.ts # Forge backend entrypoint (resolvers)
+│ ├── index.ts # Forge backend entrypoint (resolvers wired through ContextService)
 │ ├── api/ # Backend domain logic
 │ │ ├── sessions.ts
 │ │ ├── votes.ts
 │ │ ├── jira.ts
 │ │ └── config.ts
+│ ├── services/
+│ │ ├── contextService.ts
+│ │ └── projectPermissions.ts
+│ ├── tasks/
+│ │ └── cleanupSessions.ts
+│ ├── utils/
+│ │ ├── context.ts
+│ │ └── logger.ts
 │ └── types/
-│ └── domain.ts
+│   └── domain.ts
 ├── static/
 │ └── planning-poker-ui/
-│ ├── package.json
-│ ├── tsconfig.json
-│ ├── vite.config.ts or similar
-│ └── src/
-│ ├── main.tsx
-│ ├── App.tsx
-│ ├── features/
-│ │ ├── sessions/
-│ │ └── voting/
-│ └── components/
+│   ├── package.json
+│   ├── tsconfig.json
+│   ├── vite.config.ts
+│   └── src/
+│     ├── main.tsx
+│     ├── App.tsx
+│     ├── features/
+│     │ ├── session/
+│     │ └── voting/
+│     ├── hooks/
+│     └── components/
 ├── docs/
 │ ├── 01-product-overview.md
 │ ├── 02-tech-stack-decision.md
@@ -30,7 +39,14 @@
 │ ├── 04-architecture.md
 │ ├── 05-manifest-draft.yml
 │ ├── 06-implementation-plan.md
-│ └── 07-repo-structure.md
+│ ├── 07-repo-structure.md
+│ └── analyze/
+│   ├── audit-report.md
+│   └── remediation-checklist.md
 └── tests/
-├── backend/
-└── frontend/
+  ├── setup.ts / helpers
+  ├── sessions.test.ts
+  ├── votes.test.ts
+  ├── jira.test.ts
+  ├── realtime.test.ts
+  └── cleanupSessions.test.ts

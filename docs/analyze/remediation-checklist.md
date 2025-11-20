@@ -6,42 +6,42 @@ Tracking every finding from `docs/analyze/audit-report.md`. Items will be checke
 
 - [x] Race condition in `joinSession` (per-participant storage / locking)
 - [x] Missing automated tests across repo (backend + frontend)
-- [ ] Hidden votes exposed before reveal (redact vote payloads, restrict `issueKey` overrides)
+- [x] Hidden votes exposed before reveal (redact vote payloads, restrict `issueKey` overrides)
 
 ## High
 
-- [ ] Session listing performs N+1 storage queries (add session summaries)
-- [ ] Secret management: validate relay env vars exist
-- [ ] Duplicate realtime event handling in `useRealtimeSession`
-- [ ] Incorrect Jira search endpoint usage
-- [ ] Jira resolvers bypass user permissions (`api.asApp` usage)
-- [ ] Session APIs allow arbitrary project keys (context validation)
-- [ ] Project configuration writes lack authorization + UI guard
+- [x] Session listing performs N+1 storage queries (add session summaries)
+- [x] Secret management: validate relay env vars exist
+- [x] Duplicate realtime event handling in `useRealtimeSession`
+- [x] Incorrect Jira search endpoint usage
+- [x] Jira resolvers bypass user permissions (`api.asApp` usage)
+- [x] Session APIs allow arbitrary project keys (context validation)
+- [x] Project configuration writes lack authorization + UI guard
 
 ## Medium
 
-- [ ] Hardcoded relay base URL instead of configuration
-- [ ] No cleanup/TTL for stale sessions (scheduled trigger)
-- [ ] Polling fallback too aggressive; add backoff/manual refresh
-- [ ] Configured estimate field ignored when rendering issues
-- [ ] Sessions fail to persist shared backlog/JQL data
-- [ ] Realtime debug overlay leaks sensitive payloads (feature flag + redaction)
-- [ ] Deploys skip frontend build step (run UI build before `forge deploy`)
+- [x] Hardcoded relay base URL instead of configuration
+- [x] No cleanup/TTL for stale sessions (scheduled trigger)
+- [x] Polling fallback too aggressive; add backoff/manual refresh
+- [x] Configured estimate field ignored when rendering issues
+- [x] Sessions fail to persist shared backlog/JQL data
+- [x] Realtime debug overlay leaks sensitive payloads (feature flag + redaction)
+- [x] Deploys skip frontend build step (run UI build before `forge deploy`)
 
 ## Low
 
-- [ ] Unsafe type assertions when reading storage
-- [ ] Console logging lacks structured logger wrapper
-- [ ] “Open in Jira” link never renders (missing DTO link field)
+- [x] Unsafe type assertions when reading storage (replace casts with runtime schema validation, e.g., Zod)
+- [x] Console logging lacks structured logger wrapper (introduce a shared structured logger for Forge logs)
+- [x] "Open in Jira" link never renders (set the `issue.link` field when mapping Jira issues)
 
 ## Architectural / Refactor Recommendations
 
-- [ ] Flatten data model for participants/votes to per-entity keys (supports concurrency)
-- [ ] Support optimistic UI updates for faster UX
-- [ ] Introduce service layer abstractions to isolate storage/Jira integrations
-- [ ] Enforce project context & RBAC via dedicated context service (extends validation work)
-- [ ] Persist and share session backlogs/JQL history across reconnects
-- [ ] Production-safe telemetry & debugging controls (guarded diagnostics)
+- [x] Flatten data model for participants/votes to per-entity keys (supports concurrency)
+- [x] Support optimistic UI updates for faster UX
+- [x] Introduce service layer abstractions to isolate storage/Jira integrations
+- [x] Enforce project context & RBAC via dedicated context service (extends validation work)
+- [x] Persist and share session backlogs/JQL history across reconnects
+- [x] Production-safe telemetry & debugging controls (guarded diagnostics)
 
 ## Testing & Quality Gaps
 

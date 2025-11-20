@@ -76,6 +76,7 @@ export default function SessionPage({ data, onBack, onSessionData, viewerAccount
   const [actionError, setActionError] = useState<string | null>(null);
   const [isSubmittingAction, setIsSubmittingAction] = useState(false);
   const hasInitialisedIssueRef = useRef(false);
+  const [pendingVotes, setPendingVotes] = useState<Record<string, string>>({});
   const backlogSyncRef = useRef<{ hash: string; jql?: string } | null>(null);
 
 
@@ -91,6 +92,9 @@ export default function SessionPage({ data, onBack, onSessionData, viewerAccount
   const currentIssue = issues[currentIssueIndex];
   const currentIssueState =
     currentIssue && data.currentIssueState?.issueKey === currentIssue.key ? data.currentIssueState : null;
+  useEffect(() => {
+    setPendingVotes({});
+  }, [data.currentIssueState?.issueKey, session.id]);
 
   const refreshSession = useCallback(
     async () => {
@@ -281,9 +285,20 @@ export default function SessionPage({ data, onBack, onSessionData, viewerAccount
     null;
 
   const currentVotes = currentIssueState?.votes ?? {};
+  const optimisticVotes = useMemo(() => {
+    const merged = { ...currentVotes };
+    Object.entries(pendingVotes).forEach(([accountId, value]) => {
+      merged[accountId] = {
+        accountId,
+        hasVoted: true,
+        value,
+      };
+    });
+    return merged;
+  }, [currentVotes, pendingVotes]);
   const isRevealed = currentIssueState?.isRevealed ?? false;
 
-  const stats = useMemo(() => summarizeVotes(currentVotes), [currentVotes, isRevealed]);
+  const stats = useMemo(() => summarizeVotes(optimisticVotes), [optimisticVotes, isRevealed]);
   const [applyValue, setApplyValue] = useState<string>('');
   const [applyMessage, setApplyMessage] = useState<string | null>(null);
   const estimatedSuggestion = useMemo(() => {
@@ -316,22 +331,24 @@ export default function SessionPage({ data, onBack, onSessionData, viewerAccount
   }, [viewerIsModerator]);
 
   const runAction = useCallback(
-    async (action: () => Promise<unknown>, errorMessage: string, requireModerator = true) => {
+    async (action: () => Promise<unknown>, errorMessage: string, requireModerator = true): Promise<boolean> => {
       if (!currentIssue) {
-        return;
+        return false;
       }
       if (requireModerator && !viewerIsModerator) {
         setActionError('Only moderators can control the session.');
-        return;
+        return false;
       }
       setActionError(null);
       setIsSubmittingAction(true);
       try {
         await action();
         await refreshSession();
+        return true;
       } catch (err) {
         console.error(errorMessage, err);
         setActionError(errorMessage);
+        return false;
       } finally {
         setIsSubmittingAction(false);
       }
@@ -342,11 +359,23 @@ export default function SessionPage({ data, onBack, onSessionData, viewerAccount
   const handleCardSelect = (value: string) => {
     if (!localParticipantId || !currentIssue || isRevealed || isSubmittingAction) return;
     logOutgoing('castVote', { sessionId: session.id, issueKey: currentIssue.key, value });
-    runAction(
+    setPendingVotes((prev) => ({
+      ...prev,
+      [localParticipantId]: value,
+    }));
+    void runAction(
       () => castVoteRequest(session.id, currentIssue.key, value),
       'Unable to submit your vote. Please try again.',
       false
-    );
+    ).then((success) => {
+      if (!success) {
+        setPendingVotes((prev) => {
+          const next = { ...prev };
+          delete next[localParticipantId];
+          return next;
+        });
+      }
+    });
   };
 
   const handleReveal = () => {
@@ -409,7 +438,7 @@ export default function SessionPage({ data, onBack, onSessionData, viewerAccount
   const everyoneHasVoted =
     currentIssue &&
     participants.length > 0 &&
-    participants.every((participant) => Boolean(currentVotes[participant.accountId]));
+    participants.every((participant) => Boolean(optimisticVotes[participant.accountId]));
 
   return (
     <div className="session-layout">
@@ -470,11 +499,11 @@ export default function SessionPage({ data, onBack, onSessionData, viewerAccount
 
       {currentIssue ? (
         <div className="session-grid">
-          <ParticipantsList participants={participants} votes={currentVotes} isRevealed={isRevealed} />
+          <ParticipantsList participants={participants} votes={optimisticVotes} isRevealed={isRevealed} />
           <div className="session-side">
             <Deck
               values={session.deckValues}
-              selectedValue={localParticipantId ? currentVotes[localParticipantId]?.value ?? null : null}
+              selectedValue={localParticipantId ? optimisticVotes[localParticipantId]?.value ?? null : null}
               onSelect={handleCardSelect}
               disabled={isRevealed || isSubmittingAction}
               isRevealed={isRevealed}

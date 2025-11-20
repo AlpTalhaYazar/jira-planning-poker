@@ -10,11 +10,20 @@ modules:
 
 resources:
   - key: planning-poker-ui
-    path: static/planning-poker-ui/build
+    path: static/planning-poker-ui/dist
 
 functions:
   - key: planning-poker-backend
     handler: index.handler
+  - key: planning-poker-cleanup
+    handler: cleanup.handler
+
+triggers:
+  - key: planning-poker-cleanup-trigger
+    function: planning-poker-cleanup
+    events:
+      - schedule:
+          interval: day
 
 app:
   id: your-app-id-here
@@ -25,6 +34,9 @@ permissions:
     - read:jira-work
     - write:jira-work
     - read:jira-user
-  storage:
-    - read
-    - write
+    - storage:app
+  external:
+    fetch:
+      backend:
+        - https://relay.alptalha.dev
+        - wss://relay.alptalha.dev
