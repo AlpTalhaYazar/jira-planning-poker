@@ -95,7 +95,7 @@ describe("planning poker smoke flow", () => {
     expect(revealed.isRevealed).toBe(true);
 
     let capturedIssuePayload: any;
-    testingApi.onUserRequest("/rest/api/3/search", async () =>
+    testingApi.onUserRequest("/rest/api/3/search/jql", async () =>
       buildResponse({
         issues: [
           {

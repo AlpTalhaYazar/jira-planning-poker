@@ -43,8 +43,11 @@ export const joinSession = async (
 ): Promise<SessionWithParticipants> =>
   invoke<SessionWithParticipants>("joinSession", { sessionId, issueKey });
 
-export const leaveSession = async (sessionId: string): Promise<void> => {
-  await invoke("leaveSession", { sessionId });
+export const leaveSession = async (
+  sessionId: string,
+  accountId?: string
+): Promise<void> => {
+  await invoke("leaveSession", { sessionId, accountId });
 };
 
 export const getSession = async (
@@ -111,3 +114,15 @@ export const updateSessionBacklog = async (
   issueKeys: string[],
   jql?: string
 ) => invoke("updateSessionBacklog", { sessionId, issueKeys, jql });
+
+export const getUserActiveSession = async (): Promise<{ sessionId: string | null }> =>
+  invoke<{ sessionId: string | null }>("getUserActiveSession");
+
+export const startSession = async (sessionId: string): Promise<SessionSummary> =>
+  invoke<SessionSummary>("startSession", { sessionId });
+
+export const toggleReady = async (
+  sessionId: string,
+  isReady: boolean
+): Promise<SessionSummary> =>
+  invoke<SessionSummary>("toggleReady", { sessionId, isReady });

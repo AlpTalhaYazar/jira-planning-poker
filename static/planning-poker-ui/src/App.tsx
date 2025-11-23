@@ -8,6 +8,7 @@ import {
   listSessions,
   getProjectConfig,
   setProjectConfig,
+  getUserActiveSession as getUserActiveSessionApi,
 } from "./api/sessionsClient";
 import type {
   ProjectConfig,
@@ -94,10 +95,30 @@ export default function App() {
 
     fetchContext();
 
+    // Restore session from storage if present
+    (async () => {
+      try {
+        const { sessionId } = await getUserActiveSessionApi();
+        if (sessionId && !cancelled) {
+          pushDebugEvent({
+            direction: "outgoing",
+            event: "joinSession",
+            payload: { sessionId },
+          });
+          const joined = await joinSessionApi(sessionId);
+          if (!cancelled) {
+            setActiveSession(joined);
+          }
+        }
+      } catch (err) {
+        console.error("Failed to restore session from storage", err);
+      }
+    })();
+
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [pushDebugEvent]);
 
   const projectName = context?.extension?.project?.name;
   const projectKey = context?.extension?.project?.key;

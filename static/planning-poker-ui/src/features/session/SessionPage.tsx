@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Deck from "../voting/Deck";
+import WaitingRoom from "./WaitingRoom";
 import IssuePanel from "../../components/IssuePanel";
 import type {
   Issue,
@@ -15,6 +16,7 @@ import {
   clearVotes as clearVotesRequest,
   fetchIssuesForProject,
   getSession as fetchSessionDetails,
+  leaveSession as leaveSessionApi,
   revealIssue as revealIssueRequest,
   setCurrentIssue as setCurrentIssueRequest,
   updateSessionBacklog as updateSessionBacklogRequest,
@@ -121,10 +123,20 @@ export default function SessionPage({
     setPendingVotes({});
   }, [data.currentIssueState?.issueKey, session.id]);
 
+  const isMountedRef = useRef(true);
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
+
   const refreshSession = useCallback(async () => {
     try {
       const latest = await fetchSessionDetails(session.id);
-      onSessionData(latest);
+      if (isMountedRef.current) {
+        onSessionData(latest);
+      }
     } catch (err) {
       console.error("Failed to refresh session data", err);
     }
@@ -278,14 +290,46 @@ export default function SessionPage({
 
   const captureSessionEvent = useCallback(
     (message: { sessionId?: string; event?: string; payload?: unknown }) => {
+      // Log the raw incoming message for debugging
       logDebug(
         "incoming",
         message.event ?? "session:event",
         message.payload ?? message
       );
-      handleSessionEvent(message);
+
+      // If it's a "session:event" (legacy/wrapper), unwrap it if possible
+      // But based on useRealtimeSession, we are now getting specific events like "vote.cast"
+      // So we should check if the event matches our session ID
+      
+      const targetSessionId = message.sessionId;
+      if (targetSessionId === session.id) {
+        if (message.event === "participant.left") {
+          // If a participant left, we should refresh to update the list
+          // AND we should ensure they are removed from the backend if they are still there
+          // This handles the case where a user disconnected (socket closed) but didn't explicitly leave via API
+          const payload = message.payload as { participantId?: string };
+          if (payload?.participantId && payload.participantId !== viewerAccountId) {
+             // We trigger a cleanup for this user.
+             // We only do this if we are the moderator to avoid race conditions/spam,
+             // OR if we are just a peer and want to ensure consistency.
+             // Let's have the moderator do it if present, otherwise anyone.
+             // Actually, to be safe, let's just refresh. The backend *should* have handled it?
+             // No, the backend doesn't know about socket disconnects directly.
+             // So we MUST trigger the cleanup here.
+             // We'll call leaveSession for that user.
+             // To avoid 10 people calling it, maybe we check if we are the "leader" (e.g. moderator)?
+             if (viewerIsModerator) {
+               leaveSessionApi(session.id, payload.participantId).catch(console.error);
+             }
+          }
+          refreshSession();
+        } else {
+          // For now, we simply refresh the session on ANY relevant event
+          refreshSession();
+        }
+      }
     },
-    [handleSessionEvent, logDebug]
+    [session.id, refreshSession, logDebug, viewerAccountId, viewerIsModerator]
   );
 
   const { status: realtimeStatus } = useRealtimeSession({
@@ -519,6 +563,16 @@ export default function SessionPage({
     participants.every((participant) =>
       Boolean(optimisticVotes[participant.accountId])
     );
+
+  if (session.status === "waiting") {
+    return (
+      <WaitingRoom
+        data={data}
+        viewerAccountId={viewerAccountId}
+        onSessionUpdate={onSessionData}
+      />
+    );
+  }
 
   return (
     <div className="session-layout">

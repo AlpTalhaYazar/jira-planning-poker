@@ -1,6 +1,6 @@
 export type DeckType = "fibonacci" | "tshirt" | "powers-of-two" | "custom";
 
-export type SessionStatus = "active" | "closed";
+export type SessionStatus = "waiting" | "active" | "closed";
 
 export interface Session {
   id: string;
@@ -14,6 +14,7 @@ export interface Session {
   issueKeys: string[];
   currentIssueKey: string | null;
   jql?: string;
+  participantsReady?: string[];
 }
 
 export interface Issue {

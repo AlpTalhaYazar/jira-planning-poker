@@ -32,7 +32,7 @@ describe("Jira API integration", () => {
     let capturedBody: any;
 
     testingApi.onUserRequest(
-      "/rest/api/3/search",
+      "/rest/api/3/search/jql",
       async (_url: string, init?: RequestInit) => {
         capturedMethod = init?.method;
         capturedBody = init?.body ? JSON.parse(init.body as string) : undefined;

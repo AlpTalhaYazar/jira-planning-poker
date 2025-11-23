@@ -5,6 +5,10 @@ import {
   TOKEN_REFRESH_BUFFER_MS,
   CONNECTION_RETRY_DELAY_MS,
 } from "../constants/realtime";
+import type {
+  RelayEventName,
+  RelayEventPayload,
+} from "@alptalhayazar/planning-poker-relay-events";
 
 type RealtimeStatus =
   | "idle"
@@ -16,9 +20,9 @@ type RealtimeStatus =
 interface UseRealtimeSessionProps {
   sessionId: string;
   onSessionEvent: (message: {
-    sessionId?: string;
-    event?: string;
-    payload?: unknown;
+    sessionId: string;
+    event: RelayEventName | "connect" | "disconnect" | "session:event" | "participant.left";
+    payload: unknown;
   }) => void;
   onSocketEvent?: (eventName: string, payload: unknown) => void;
   onToken?: (tokenResponse: {
@@ -94,12 +98,13 @@ export function useRealtimeSession({
           console.log("[Realtime] connected to relay");
           setStatus("connected");
           // Trigger a refresh on connection to ensure we have latest state
-          onSessionEvent({ sessionId, event: "connect" });
+          onSessionEvent({ sessionId, event: "connect", payload: undefined });
         });
 
         socket.on("disconnect", () => {
           console.log("[Realtime] disconnected from relay");
           setStatus("connecting");
+          onSessionEvent({ sessionId, event: "disconnect", payload: undefined });
         });
 
         socket.on("connect_error", (err) => {
@@ -123,10 +128,19 @@ export function useRealtimeSession({
               payload?: unknown;
             }) ?? { sessionId, event: "session:event" };
             console.log("[Realtime] session event received", message);
-            onSessionEvent(message || { sessionId, event: "session:event" });
+            onSessionEvent({
+              sessionId: message.sessionId ?? sessionId,
+              event: "session:event",
+              payload: message.payload,
+            });
           } else {
             console.log("[Realtime] event received", eventName, payload);
-            onSessionEvent({ sessionId, event: eventName, payload });
+            // We assume any other event is a RelayEventName
+            onSessionEvent({
+              sessionId,
+              event: eventName as RelayEventName,
+              payload: payload as RelayEventPayload,
+            });
           }
           onSocketEvent?.(eventName, payload);
         });

@@ -1,8 +1,6 @@
 import type { DebugEvent } from "../hooks/useDebugEvents";
 interface RealtimeDebugToastsProps {
-  events: DebugEvent[];
+    events: DebugEvent[];
 }
-export default function RealtimeDebugToasts({
-  events,
-}: RealtimeDebugToastsProps): import("react/jsx-runtime").JSX.Element | null;
+export default function RealtimeDebugToasts({ events, }: RealtimeDebugToastsProps): import("react/jsx-runtime").JSX.Element | null;
 export {};

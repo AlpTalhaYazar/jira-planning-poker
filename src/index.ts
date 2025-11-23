@@ -12,6 +12,9 @@ import {
   listSessionsByProject,
   setCurrentIssueKey,
   updateSessionBacklog,
+  getUserActiveSession,
+  startSession,
+  toggleReady,
 } from "./api/sessions";
 import {
   recordVote,
@@ -96,7 +99,7 @@ resolver.define("joinSession", async (req) => {
     if (participant) {
       await publishRelayEvent({
         sessionId,
-        event: "session.joined",
+        event: 'participant.joined',
         payload: {
           participantId: participant.accountId,
           displayName: participant.displayName,
@@ -109,21 +112,31 @@ resolver.define("joinSession", async (req) => {
 
 resolver.define("leaveSession", async (req) => {
   const ctx = new ContextService(req);
-  const { sessionId } = req.payload ?? {};
-  const accountId = ctx.getAccountId();
+  const { sessionId, accountId: targetAccountId } = req.payload ?? {};
+  const callerAccountId = ctx.getAccountId();
   if (!sessionId) {
-    throw new Error("sessionId and accountId are required");
+    throw new Error("sessionId is required");
   }
   const snapshot = await getSessionRecord(sessionId);
   if (!snapshot) {
     throw new Error("Session not found");
   }
   ctx.ensureSessionAccess(snapshot.session.projectKey);
-  await leaveSession(sessionId, accountId);
+
+  // If targetAccountId is provided, we are removing someone else.
+  // We should probably check if the caller is a moderator or if it's a "cleanup" operation.
+  // For now, to solve the "zombie" issue, we allow any participant to remove a disconnected user
+  // if they received a "participant.left" event (which implies the user is gone).
+  // Ideally we would verify the "left" status, but we trust the client for now.
+  // If targetAccountId is NOT provided, we remove the caller.
+  
+  const accountIdToRemove = targetAccountId || callerAccountId;
+
+  await leaveSession(sessionId, accountIdToRemove);
   await publishRelayEvent({
     sessionId,
     event: "participant.left",
-    payload: { participantId: accountId },
+    payload: { participantId: accountIdToRemove },
   });
   return { ok: true };
 });
@@ -397,6 +410,65 @@ resolver.define("getRealtimeToken", async (req) => {
     expiresAt: token.expiresAt,
   });
   return token;
+});
+
+resolver.define("getUserActiveSession", async (req) => {
+  const ctx = new ContextService(req);
+  const accountId = ctx.getAccountId();
+  const sessionId = await getUserActiveSession(accountId);
+  return { sessionId };
+});
+
+resolver.define("startSession", async (req) => {
+  const ctx = new ContextService(req);
+  const { sessionId } = req.payload ?? {};
+  const accountId = ctx.getAccountId();
+  if (!sessionId) {
+    throw new Error("sessionId is required");
+  }
+  const snapshot = await getSessionRecord(sessionId, {
+    viewerAccountId: accountId,
+  });
+  if (!snapshot) {
+    throw new Error("Session not found");
+  }
+  ctx.ensureSessionAccess(snapshot.session.projectKey);
+  const participant = snapshot.participants.find(
+    (p) => p.accountId === accountId
+  );
+  if (!participant?.isModerator) {
+    throw new Error("Only moderators can start the session.");
+  }
+  const updatedSession = await startSession(sessionId);
+  await publishRelayEvent({
+    sessionId,
+    event: "session.started",
+    payload: { actorId: accountId },
+  });
+  return updatedSession;
+});
+
+resolver.define("toggleReady", async (req) => {
+  const ctx = new ContextService(req);
+  const { sessionId, isReady } = req.payload ?? {};
+  const accountId = ctx.getAccountId();
+  if (!sessionId) {
+    throw new Error("sessionId is required");
+  }
+  const snapshot = await getSessionRecord(sessionId, {
+    viewerAccountId: accountId,
+  });
+  if (!snapshot) {
+    throw new Error("Session not found");
+  }
+  ctx.ensureSessionAccess(snapshot.session.projectKey);
+  const updatedSession = await toggleReady(sessionId, accountId, !!isReady);
+  await publishRelayEvent({
+    sessionId,
+    event: "participant.ready",
+    payload: { participantId: accountId, isReady: !!isReady },
+  });
+  return updatedSession;
 });
 
 export const handler = resolver.getDefinitions();

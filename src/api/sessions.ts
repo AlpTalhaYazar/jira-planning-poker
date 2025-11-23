@@ -19,6 +19,27 @@ const participantKey = (sessionId: string, accountId: string) =>
   `${participantPrefixKey(sessionId)}${accountId}`;
 const projectSessionsKey = (projectKey: string) =>
   `project:${projectKey}:sessions`;
+const userActiveSessionKey = (accountId: string) =>
+  `user:${accountId}:activeSession`;
+
+export const setUserActiveSession = async (
+  accountId: string,
+  sessionId: string
+): Promise<void> => {
+  await storage.set(userActiveSessionKey(accountId), sessionId);
+};
+
+export const getUserActiveSession = async (
+  accountId: string
+): Promise<string | null> => {
+  return (await storage.get(userActiveSessionKey(accountId))) || null;
+};
+
+export const clearUserActiveSession = async (
+  accountId: string
+): Promise<void> => {
+  await storage.delete(userActiveSessionKey(accountId));
+};
 
 export interface SessionListEntry {
   id: string;
@@ -59,7 +80,7 @@ export const createSession = async (
     projectKey: input.projectKey,
     creatorAccountId: input.creatorAccountId,
     createdAt,
-    status: "active",
+    status: "waiting",
     deckType: input.deckType,
     deckValues: input.deckValues,
     issueKeys: [],
@@ -80,6 +101,7 @@ export const createSession = async (
     isModerator: true,
   };
   await saveParticipant(id, creatorParticipant);
+  await setUserActiveSession(creatorParticipant.accountId, id);
 
   return buildSnapshot(session, [creatorParticipant], {
     viewerAccountId: creatorParticipant.accountId,
@@ -140,11 +162,13 @@ export const joinSession = async (
       avatarUrl: profile.avatarUrl,
       joinedAt: now,
       lastSeenAt: now,
-      isModerator: false,
+      isModerator: profile.accountId === existing.session.creatorAccountId,
     };
     participants.push(newParticipant);
     await saveParticipant(sessionId, newParticipant);
   }
+
+  await setUserActiveSession(profile.accountId, sessionId);
 
   const latestParticipants = await listParticipants(sessionId);
   return buildSnapshot(existing.session, latestParticipants, viewOptions);
@@ -155,6 +179,7 @@ export const leaveSession = async (
   accountId: string
 ): Promise<void> => {
   await deleteParticipant(sessionId, accountId);
+  await clearUserActiveSession(accountId);
 };
 
 const addSessionToProjectIndex = async (session: Session): Promise<void> => {
@@ -397,4 +422,38 @@ const readSessionRecord = async (
     return null;
   }
   return stored;
+};
+
+export const startSession = async (sessionId: string): Promise<Session> => {
+  const session = await readSessionRecord(sessionId);
+  if (!session) {
+    throw new Error("Session not found");
+  }
+  if (session.status !== "waiting") {
+    throw new Error("Session is not in waiting state");
+  }
+  session.status = "active";
+  await storage.set(sessionKey(sessionId), session);
+  await addSessionToProjectIndex(session);
+  return session;
+};
+
+export const toggleReady = async (
+  sessionId: string,
+  accountId: string,
+  isReady: boolean
+): Promise<Session> => {
+  const session = await readSessionRecord(sessionId);
+  if (!session) {
+    throw new Error("Session not found");
+  }
+  const currentReady = new Set(session.participantsReady || []);
+  if (isReady) {
+    currentReady.add(accountId);
+  } else {
+    currentReady.delete(accountId);
+  }
+  session.participantsReady = Array.from(currentReady);
+  await storage.set(sessionKey(sessionId), session);
+  return session;
 };

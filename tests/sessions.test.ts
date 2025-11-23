@@ -6,6 +6,8 @@ import {
   joinSession,
   listSessionsByProject,
   setCurrentIssueKey,
+  startSession,
+  toggleReady,
 } from "../src/api/sessions";
 import type { CreateSessionInput } from "../src/api/sessions";
 import { recordVote, setIssueRevealState } from "../src/api/votes";
@@ -260,5 +262,53 @@ describe("session listing summaries", () => {
       id: snapshot.session.id,
       name: "Legacy Session",
     });
+  });
+});
+
+describe("waiting room flow", () => {
+  beforeEach(() => {
+    testingApi.reset();
+  });
+
+  const baseInput: CreateSessionInput = {
+    projectKey: "WAIT",
+    name: "Waiting Room Session",
+    deckType: "fibonacci",
+    deckValues: ["1", "2", "3"],
+    creatorAccountId: "moderator",
+  };
+
+  it("starts in waiting state and transitions to active", async () => {
+    testingApi.enqueueMyselfResponse({
+      accountId: "moderator",
+      displayName: "Moderator",
+      avatarUrls: { "48x48": "m.png" },
+    });
+
+    const snapshot = await createSession(baseInput);
+    expect(snapshot.session.status).toBe("waiting");
+
+    const started = await startSession(snapshot.session.id);
+    expect(started.status).toBe("active");
+
+    const fetched = await getSession(snapshot.session.id);
+    expect(fetched?.session.status).toBe("active");
+  });
+
+  it("allows participants to toggle ready status", async () => {
+    testingApi.enqueueMyselfResponse({
+      accountId: "moderator",
+      displayName: "Moderator",
+      avatarUrls: { "48x48": "m.png" },
+    });
+
+    const snapshot = await createSession(baseInput);
+    const sessionId = snapshot.session.id;
+
+    let session = await toggleReady(sessionId, "moderator", true);
+    expect(session.participantsReady).toContain("moderator");
+
+    session = await toggleReady(sessionId, "moderator", false);
+    expect(session.participantsReady).not.toContain("moderator");
   });
 });

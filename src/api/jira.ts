@@ -49,9 +49,10 @@ export const getIssuesForProject = async ({
     ])
   );
 
-  const response = await api.asUser().requestJira(route`/rest/api/3/search`, {
+  const response = await api.asUser().requestJira(route`/rest/api/3/search/jql`, {
     method: "POST",
     headers: {
+      Accept: "application/json",
       "Content-Type": "application/json",
     },
     body: JSON.stringify({

@@ -1,7 +1,7 @@
 import api from "@forge/api";
 import { randomUUID } from "crypto";
-import type { RelayEventEnvelope } from "@alptalhayazar/planning-poker-relay-events";
 import jwt from "jsonwebtoken";
+import type { RelayEventEnvelope } from "@alptalhayazar/planning-poker-relay-events";
 import { logger } from "../utils/logger";
 
 const TOKEN_TTL_SECONDS = Number(process.env.RELAY_TOKEN_TTL ?? 300);
