@@ -1,2 +1,1 @@
-import "@atlaskit/css-reset";
-import "./main.css";
+import "./styles/globals.css";

@@ -1,253 +1,130 @@
-import { jsx as _jsx, jsxs as _jsxs, Fragment as _Fragment } from "react/jsx-runtime";
-import { useCallback, useEffect, useState } from "react";
+import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
+import { useState, useEffect } from "react";
+import { SessionCard } from "./components/poker/SessionCard";
+import { CreateSessionDialog } from "./components/poker/CreateSessionDialog";
+import { WaitingRoom } from "./components/poker/WaitingRoom";
+import { ActiveSession } from "./components/poker/ActiveSession";
+import { Button } from "./components/ui/button";
+import { Plus } from "lucide-react";
+import { Toaster } from "./components/ui/sonner";
+import { toast } from "sonner";
 import { view } from "@forge/bridge";
-import SessionPage from "./features/session/SessionPage";
-import { createSession as createSessionApi, joinSession as joinSessionApi, leaveSession as leaveSessionApi, listSessions, getProjectConfig, setProjectConfig, getUserActiveSession as getUserActiveSessionApi, } from "./api/sessionsClient";
-import RealtimeDebugToasts from "./components/RealtimeDebugToasts";
-import { useDebugEvents } from "./hooks/useDebugEvents";
-import "./App.css";
-const DEFAULT_FIBONACCI_DECK = [
-    "0",
-    "0.5",
-    "1",
-    "2",
-    "3",
-    "5",
-    "8",
-    "13",
-    "20",
-    "40",
-    "100",
-    "?",
-    "☕",
-];
+import * as api from "./api/forge";
 export default function App() {
-    const [context, setContext] = useState(null);
-    const [contextError, setContextError] = useState(null);
-    const [isLoadingContext, setIsLoadingContext] = useState(true);
+    const [viewState, setViewState] = useState("home");
     const [sessions, setSessions] = useState([]);
-    const [sessionsError, setSessionsError] = useState(null);
-    const [isLoadingSessions, setIsLoadingSessions] = useState(false);
-    const [activeSession, setActiveSession] = useState(null);
-    const [createSessionName, setCreateSessionName] = useState("");
-    const [createSessionJql, setCreateSessionJql] = useState("");
-    const [isCreatingSession, setIsCreatingSession] = useState(false);
-    const [sessionActionError, setSessionActionError] = useState(null);
-    const [projectConfig, setProjectConfigState] = useState(null);
-    const [isConfigLoaded, setIsConfigLoaded] = useState(false);
-    const [configError, setConfigError] = useState(null);
-    const [isSavingConfig, setIsSavingConfig] = useState(false);
-    const { events: debugEvents, pushEvent: pushDebugEvent } = useDebugEvents();
-    const showDebugToasts = import.meta.env.MODE !== "production";
+    const [loading, setLoading] = useState(true);
+    const [currentSession, setCurrentSession] = useState(null);
+    const [isCreateOpen, setIsCreateOpen] = useState(false);
+    const [projectKey, setProjectKey] = useState(null);
     useEffect(() => {
-        let cancelled = false;
-        const fetchContext = async () => {
+        const initContext = async () => {
             try {
-                const ctx = (await view.getContext());
-                if (!cancelled) {
-                    setContext(ctx);
+                const context = await view.getContext();
+                const key = context.extension.project?.key;
+                if (key) {
+                    setProjectKey(key);
+                    loadSessions(key);
+                }
+                else {
+                    console.warn("No project key found in context");
+                    // Fallback or handle error? For now, we might be in a global context or testing.
+                    // If we are testing locally without context, this might fail.
+                    // But the user is deploying to Jira, so context should exist.
                 }
             }
-            catch (err) {
-                if (!cancelled) {
-                    console.error("Failed to load Forge context", err);
-                    setContextError("Unable to load project information.");
-                }
-            }
-            finally {
-                if (!cancelled) {
-                    setIsLoadingContext(false);
-                }
+            catch (e) {
+                console.error("Failed to get context", e);
+                toast.error("Failed to load project context");
             }
         };
-        fetchContext();
-        // Restore session from storage if present
-        (async () => {
-            try {
-                const { sessionId } = await getUserActiveSessionApi();
-                if (sessionId && !cancelled) {
-                    pushDebugEvent({
-                        direction: "outgoing",
-                        event: "joinSession",
-                        payload: { sessionId },
-                    });
-                    const joined = await joinSessionApi(sessionId);
-                    if (!cancelled) {
-                        setActiveSession(joined);
-                    }
-                }
-            }
-            catch (err) {
-                console.error("Failed to restore session from storage", err);
-            }
-        })();
-        return () => {
-            cancelled = true;
-        };
-    }, [pushDebugEvent]);
-    const projectName = context?.extension?.project?.name;
-    const projectKey = context?.extension?.project?.key;
-    const viewerAccountId = context?.accountId;
-    const effectiveDeckValues = projectConfig?.deckValues ?? DEFAULT_FIBONACCI_DECK;
-    const effectiveDeckType = projectConfig?.deckType ?? "fibonacci";
-    const canEditProjectConfig = projectConfig?.canEdit ?? false;
-    const effectiveDefaultJql = createSessionJql ||
-        projectConfig?.defaultJql ||
-        (projectKey ? `project = "${projectKey}" AND statusCategory != Done` : "");
-    const refreshSessions = useCallback(async (key) => {
-        setIsLoadingSessions(true);
-        setSessionsError(null);
+        initContext();
+    }, []);
+    const loadSessions = async (pKey) => {
         try {
-            const data = await listSessions({ projectKey: key });
-            setSessions(data);
+            setLoading(true);
+            const response = await api.listSessionsByProject(pKey);
+            if (Array.isArray(response)) {
+                // Map backend session to UI summary
+                const mapped = response.map((s) => ({
+                    id: s.id,
+                    name: s.name,
+                    deck: s.deckType,
+                    created: new Date(s.createdAt).toLocaleDateString(), // Simple formatting
+                    status: s.status
+                }));
+                setSessions(mapped);
+            }
         }
         catch (err) {
             console.error("Failed to load sessions", err);
-            setSessionsError("Unable to load sessions right now.");
+            toast.error("Failed to load sessions");
         }
         finally {
-            setIsLoadingSessions(false);
-        }
-    }, []);
-    useEffect(() => {
-        if (projectKey) {
-            refreshSessions(projectKey);
-            if (!isConfigLoaded) {
-                (async () => {
-                    try {
-                        const cfg = await getProjectConfig(projectKey);
-                        setProjectConfigState(cfg);
-                    }
-                    catch (err) {
-                        console.error("Failed to load project config", err);
-                        setConfigError("Unable to load project configuration.");
-                    }
-                    finally {
-                        setIsConfigLoaded(true);
-                    }
-                })();
-            }
-        }
-    }, [projectKey, refreshSessions, isConfigLoaded]);
-    const handleCreateSession = async () => {
-        if (!projectKey) {
-            setSessionActionError("Project key missing from context.");
-            return;
-        }
-        setIsCreatingSession(true);
-        setSessionActionError(null);
-        try {
-            const name = createSessionName.trim() ||
-                `Planning Poker – ${new Date().toLocaleDateString()}`;
-            pushDebugEvent({
-                direction: "outgoing",
-                event: "createSession",
-                payload: { projectKey, name, deckType: effectiveDeckType },
-            });
-            const newSession = await createSessionApi({
-                projectKey,
-                name,
-                deckType: effectiveDeckType,
-                deckValues: effectiveDeckValues,
-                jql: createSessionJql.trim() || projectConfig?.defaultJql || undefined,
-            });
-            setSessions((prev) => [
-                newSession.session,
-                ...prev.filter((session) => session.id !== newSession.session.id),
-            ]);
-            setActiveSession(newSession);
-            setCreateSessionName("");
-            setCreateSessionJql("");
-        }
-        catch (err) {
-            console.error("Failed to create session", err);
-            setSessionActionError("Could not create session. Please try again.");
-        }
-        finally {
-            setIsCreatingSession(false);
+            setLoading(false);
         }
     };
-    const handleOpenSession = async (sessionId) => {
-        setSessionActionError(null);
+    const handleJoinSession = async (session) => {
         try {
-            pushDebugEvent({
-                direction: "outgoing",
-                event: "joinSession",
-                payload: { sessionId },
-            });
-            const joined = await joinSessionApi(sessionId);
-            setActiveSession(joined);
+            setLoading(true);
+            // Join session on backend to ensure we are a participant
+            await api.joinSession(session.id);
+            setCurrentSession(session);
+            if (session.status === "waiting")
+                setViewState("waiting");
+            else
+                setViewState("active");
         }
         catch (err) {
             console.error("Failed to join session", err);
-            setSessionActionError("Unable to join this session.");
+            toast.error("Failed to join session");
+        }
+        finally {
+            setLoading(false);
         }
     };
-    const handleSessionDataUpdate = useCallback((data) => {
-        setActiveSession(data);
-    }, []);
-    const handleBackToList = async () => {
-        if (activeSession) {
-            try {
-                pushDebugEvent({
-                    direction: "outgoing",
-                    event: "leaveSession",
-                    payload: { sessionId: activeSession.session.id },
-                });
-                await leaveSessionApi(activeSession.session.id);
+    const handleCreateSession = async (data) => {
+        try {
+            if (!projectKey) {
+                toast.error("Project context not loaded");
+                return;
             }
-            catch (err) {
-                console.warn("Failed to leave session gracefully", err);
+            const result = await api.createSession({
+                projectKey,
+                name: data.name,
+                deckType: data.deck,
+                deckValues: ['0', '1', '2', '3', '5', '8', '13', '21'], // Default values for now, should come from deck type
+                jql: data.jql || undefined
+            });
+            if (result && result.session) {
+                const newSession = {
+                    id: result.session.id,
+                    name: result.session.name,
+                    deck: result.session.deckType,
+                    created: "Just now",
+                    status: "waiting",
+                };
+                setSessions(prev => [newSession, ...prev]);
+                setCurrentSession(newSession);
+                setViewState("waiting");
+                setIsCreateOpen(false);
+                toast.success("Session created!");
             }
         }
-        setActiveSession(null);
+        catch (err) {
+            console.error("Failed to create session", err);
+            toast.error("Failed to create session");
+        }
+    };
+    const handleStartSession = () => {
+        setViewState("active");
+    };
+    const handleBack = () => {
+        setViewState("home");
+        setCurrentSession(null);
         if (projectKey) {
-            refreshSessions(projectKey);
+            loadSessions(projectKey); // Refresh list
         }
     };
-    const pageTitle = activeSession
-        ? activeSession.session.name
-        : "Planning Poker Sessions";
-    const renderSessionList = () => (_jsxs("div", { className: "session-list", children: [_jsxs("div", { className: "info-card", children: [_jsx("p", { children: "Sessions are shared across your Jira site. Create one for each refinement or sprint planning meeting." }), _jsxs("p", { children: [_jsx("strong", { children: "Project:" }), " ", projectName ?? "Unknown", " (", projectKey ?? "n/a", ")"] }), !projectConfig?.estimateFieldId && (_jsx("p", { className: "error-text", children: "Estimate field not configured. Apply-to-Jira will be disabled until you set one." }))] }), _jsxs("div", { className: "session-create-card", children: [_jsxs("div", { className: "session-create-fields", children: [_jsx("label", { htmlFor: "session-name", children: "Session name" }), _jsx("input", { id: "session-name", type: "text", value: createSessionName, onChange: (event) => setCreateSessionName(event.target.value), placeholder: "e.g. Sprint 42 Estimation" })] }), _jsxs("div", { className: "session-create-fields", children: [_jsx("label", { htmlFor: "session-jql", children: "Default JQL (optional)" }), _jsx("input", { id: "session-jql", type: "text", value: createSessionJql, onChange: (event) => setCreateSessionJql(event.target.value), placeholder: `Defaults to project = "${projectKey ?? "KEY"}"` })] }), _jsx("button", { type: "button", className: "primary", onClick: handleCreateSession, disabled: isCreatingSession, children: isCreatingSession ? "Creating…" : "Create session" })] }), sessionActionError && _jsx("p", { className: "error-text", children: sessionActionError }), sessionsError && _jsx("p", { className: "error-text", children: sessionsError }), isLoadingSessions ? (_jsx("p", { children: "Loading sessions\u2026" })) : sessions.length === 0 ? (_jsx("p", { children: "No sessions yet. Create one to get started." })) : (_jsx("div", { className: "session-card-grid", children: sessions.map((session) => (_jsxs("article", { className: "session-card", children: [_jsxs("header", { children: [_jsxs("p", { className: "eyebrow", children: ["Project ", session.projectKey] }), _jsx("h2", { children: session.name })] }), _jsxs("p", { children: ["Deck: ", session.deckType] }), _jsxs("p", { children: ["Created ", new Date(session.createdAt).toLocaleString()] }), _jsx("button", { type: "button", className: "primary", onClick: () => handleOpenSession(session.id), children: "Open session" })] }, session.id))) })), _jsxs("div", { className: "session-create-card", children: [_jsx("h3", { children: "Project configuration" }), configError && _jsx("p", { className: "error-text", children: configError }), !projectConfig ? (_jsx("p", { children: "Loading configuration\u2026" })) : !canEditProjectConfig ? (_jsx("p", { className: "meta-text", children: "Only project admins can manage Planning Poker configuration." })) : (_jsxs(_Fragment, { children: [_jsxs("div", { className: "session-create-fields", children: [_jsx("label", { htmlFor: "estimate-field-id", children: "Estimate Field ID" }), _jsx("input", { id: "estimate-field-id", type: "text", value: projectConfig?.estimateFieldId ?? "", onChange: (event) => setProjectConfigState((prev) => ({
-                                            ...(prev ?? { projectKey: projectKey ?? "" }),
-                                            estimateFieldId: event.target.value || undefined,
-                                            deckType: prev?.deckType ?? "fibonacci",
-                                        })), placeholder: "customfield_10016", disabled: !canEditProjectConfig })] }), _jsxs("div", { className: "session-create-fields", children: [_jsx("label", { htmlFor: "default-jql", children: "Default JQL" }), _jsx("input", { id: "default-jql", type: "text", value: projectConfig?.defaultJql ?? "", onChange: (event) => setProjectConfigState((prev) => ({
-                                            ...(prev ?? { projectKey: projectKey ?? "" }),
-                                            defaultJql: event.target.value || undefined,
-                                            deckType: prev?.deckType ?? "fibonacci",
-                                        })), placeholder: `project = "${projectKey ?? "KEY"}" AND statusCategory != Done`, disabled: !canEditProjectConfig })] }), _jsx("button", { type: "button", className: "primary", onClick: async () => {
-                                    if (!projectKey || !projectConfig || !canEditProjectConfig) {
-                                        return;
-                                    }
-                                    setIsSavingConfig(true);
-                                    setConfigError(null);
-                                    try {
-                                        pushDebugEvent({
-                                            direction: "outgoing",
-                                            event: "setProjectConfig",
-                                            payload: projectConfig,
-                                        });
-                                        const saved = await setProjectConfig({
-                                            ...projectConfig,
-                                            projectKey,
-                                            deckType: projectConfig.deckType ?? "fibonacci",
-                                        });
-                                        setProjectConfigState(saved);
-                                    }
-                                    catch (err) {
-                                        console.error("Failed to save project config", err);
-                                        setConfigError("Unable to save project configuration.");
-                                    }
-                                    finally {
-                                        setIsSavingConfig(false);
-                                    }
-                                }, disabled: isSavingConfig ||
-                                    !projectKey ||
-                                    !projectConfig ||
-                                    !canEditProjectConfig, children: isSavingConfig ? "Saving…" : "Save config" })] }))] })] }));
-    return (_jsxs("div", { className: "app-shell", children: [showDebugToasts && _jsx(RealtimeDebugToasts, { events: debugEvents }), _jsx("header", { className: "app-header", children: _jsxs("div", { children: [_jsx("p", { className: "eyebrow", children: "Jira Planning Poker" }), _jsx("h1", { children: pageTitle })] }) }), _jsxs("main", { className: "app-content", children: [isLoadingContext && _jsx("p", { children: "Loading Jira context\u2026" }), !isLoadingContext && contextError && (_jsx("p", { className: "error-text", children: contextError })), !isLoadingContext &&
-                        !contextError &&
-                        !activeSession &&
-                        renderSessionList(), !isLoadingContext && !contextError && activeSession && (_jsx(SessionPage, { data: activeSession, onBack: handleBackToList, onSessionData: handleSessionDataUpdate, viewerAccountId: viewerAccountId, projectConfig: projectConfig, onDebugEvent: pushDebugEvent }))] })] }));
+    return (_jsxs("div", { className: "min-h-screen bg-slate-50 text-slate-900 font-sans selection:bg-blue-100", children: [_jsxs("main", { className: "max-w-6xl mx-auto p-6", children: [viewState === 'home' && (_jsxs("div", { className: "space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500", children: [_jsxs("div", { className: "flex items-center justify-between", children: [_jsxs("div", { children: [_jsx("h2", { className: "text-2xl font-semibold tracking-tight text-slate-900", children: "Poker Sessions" }), _jsx("p", { className: "text-slate-500 mt-1", children: "Join an active session or start a new estimation round." })] }), _jsxs(Button, { onClick: () => setIsCreateOpen(true), className: "bg-[#0052CC] hover:bg-[#0047B3]", disabled: !projectKey, children: [_jsx(Plus, { className: "w-4 h-4 mr-2" }), "Create Session"] })] }), loading ? (_jsx("div", { className: "text-center py-12 text-slate-500", children: "Loading sessions..." })) : (_jsx("div", { className: "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6", children: sessions.length === 0 ? (_jsx("div", { className: "col-span-full text-center py-12 text-slate-500 bg-white rounded-lg border border-dashed", children: "No sessions found. Create one to get started!" })) : (sessions.map(session => (_jsx(SessionCard, { session: session, onJoin: () => handleJoinSession(session) }, session.id)))) }))] })), viewState === 'waiting' && (_jsx(WaitingRoom, { session: currentSession, onStart: handleStartSession })), viewState === 'active' && currentSession && (_jsx(ActiveSession, { sessionId: currentSession.id }))] }), _jsx(CreateSessionDialog, { open: isCreateOpen, onOpenChange: setIsCreateOpen, onSubmit: handleCreateSession }), _jsx(Toaster, {})] }));
 }

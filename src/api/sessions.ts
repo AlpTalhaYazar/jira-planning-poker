@@ -1,4 +1,4 @@
-import api, { route, storage } from "@forge/api";
+import { storage } from "@forge/api";
 import { startsWith } from "@forge/storage";
 import { randomUUID } from "crypto";
 import type {
@@ -11,6 +11,7 @@ import type {
 import { logger } from "../utils/logger";
 import { isParticipant, isSession, isStringArray } from "../utils/type-guards";
 import { getIssueState, toIssueVoteSnapshot } from "./votes";
+import { fetchCurrentUserProfile, getIssuesForProject } from "./jira";
 
 const sessionKey = (sessionId: string) => `session:${sessionId}`;
 const participantPrefixKey = (sessionId: string) =>
@@ -18,7 +19,7 @@ const participantPrefixKey = (sessionId: string) =>
 const participantKey = (sessionId: string, accountId: string) =>
   `${participantPrefixKey(sessionId)}${accountId}`;
 const projectSessionsKey = (projectKey: string) =>
-  `project:${projectKey}:sessions`;
+  `project:${projectKey.toUpperCase()}:sessions`;
 const userActiveSessionKey = (accountId: string) =>
   `user:${accountId}:activeSession`;
 
@@ -80,13 +81,38 @@ export const createSession = async (
     projectKey: input.projectKey,
     creatorAccountId: input.creatorAccountId,
     createdAt,
+    updatedAt: createdAt,
     status: "waiting",
     deckType: input.deckType,
     deckValues: input.deckValues,
     issueKeys: [],
+    completedIssueKeys: [],
     currentIssueKey: null,
     jql: input.jql,
+    autoReveal: false,
+    allowChangeVote: true,
+    timerEnabled: false,
   };
+
+
+
+  if (input.jql) {
+      try {
+          // Fetch initial issues
+          const issues = await getIssuesForProject({
+              projectKey: input.projectKey,
+              jql: input.jql,
+              maxResults: 50
+          });
+          session.issueKeys = issues.map(i => i.key);
+          if (session.issueKeys.length > 0) {
+              session.currentIssueKey = session.issueKeys[0];
+          }
+      } catch (err) {
+          console.error("Failed to fetch initial issues for session", err);
+          // Continue creating session even if JQL fails, but maybe log it
+      }
+  }
 
   await storage.set(sessionKey(id), session);
   await addSessionToProjectIndex(session);
@@ -99,6 +125,9 @@ export const createSession = async (
     joinedAt: createdAt,
     lastSeenAt: createdAt,
     isModerator: true,
+    isObserver: false,
+    isReady: false,
+    connectionStatus: "online",
   };
   await saveParticipant(id, creatorParticipant);
   await setUserActiveSession(creatorParticipant.accountId, id);
@@ -163,6 +192,9 @@ export const joinSession = async (
       joinedAt: now,
       lastSeenAt: now,
       isModerator: profile.accountId === existing.session.creatorAccountId,
+      isObserver: false,
+      isReady: false,
+      connectionStatus: "online",
     };
     participants.push(newParticipant);
     await saveParticipant(sessionId, newParticipant);
@@ -191,33 +223,7 @@ const addSessionToProjectIndex = async (session: Session): Promise<void> => {
   await storage.set(projectSessionsKey(session.projectKey), next);
 };
 
-interface JiraUserResponse {
-  accountId?: string;
-  displayName?: string;
-  avatarUrls?: Record<string, string>;
-}
 
-const fetchCurrentUserProfile = async (): Promise<{
-  accountId: string;
-  displayName: string;
-  avatarUrl: string;
-}> => {
-  const response = await api.asUser().requestJira(route`/rest/api/3/myself`);
-  if (!response.ok) {
-    throw new Error(
-      `Failed to resolve current user profile (${response.status})`
-    );
-  }
-  const data = (await response.json()) as JiraUserResponse;
-  if (!data.accountId) {
-    throw new Error("Current user profile missing accountId");
-  }
-  return {
-    accountId: data.accountId,
-    displayName: data.displayName ?? "Unknown teammate",
-    avatarUrl: data.avatarUrls?.["48x48"] ?? "",
-  };
-};
 
 export const setCurrentIssueKey = async (
   sessionId: string,
@@ -358,8 +364,18 @@ const isSessionListEntry = (value: unknown): value is SessionListEntry => {
 const loadProjectSessionEntries = async (
   projectKey: string
 ): Promise<{ entries: SessionListEntry[]; hadLegacyEntries: boolean }> => {
-  const key = projectSessionsKey(projectKey);
+  const normalizedKey = projectKey.toUpperCase();
+  const key = projectSessionsKey(normalizedKey);
   const storedValue = await storage.get(key);
+  
+  logger.info("Loading sessions", { 
+    projectKey, 
+    normalizedKey, 
+    storageKey: key, 
+    found: !!storedValue,
+    count: Array.isArray(storedValue) ? storedValue.length : 0 
+  });
+
   const rawEntries = Array.isArray(storedValue) ? storedValue : [];
   if (storedValue && !Array.isArray(storedValue)) {
     logger.warn("Ignoring malformed session index payload", { projectKey });
@@ -369,7 +385,8 @@ const loadProjectSessionEntries = async (
 
   for (const entry of rawEntries) {
     if (isSessionListEntry(entry)) {
-      if (entry.projectKey === projectKey) {
+      // Compare normalized keys to be safe
+      if (entry.projectKey.toUpperCase() === normalizedKey) {
         entries.push(entry);
       }
       continue;
@@ -443,6 +460,7 @@ export const toggleReady = async (
   accountId: string,
   isReady: boolean
 ): Promise<Session> => {
+  console.log("Time now3", new Date().toISOString());
   const session = await readSessionRecord(sessionId);
   if (!session) {
     throw new Error("Session not found");
@@ -455,5 +473,133 @@ export const toggleReady = async (
   }
   session.participantsReady = Array.from(currentReady);
   await storage.set(sessionKey(sessionId), session);
+  console.log("Time now4", new Date().toISOString());
+  
+  // Also update participant record
+  const participant = await storage.get(participantKey(sessionId, accountId));
+  if (participant && isParticipant(participant)) {
+    participant.isReady = isReady;
+    participant.lastSeenAt = new Date().toISOString();
+    await saveParticipant(sessionId, participant);
+  }
+  
   return session;
+};
+
+export const pauseSession = async (sessionId: string): Promise<Session> => {
+  const session = await readSessionRecord(sessionId);
+  if (!session) {
+    throw new Error("Session not found");
+  }
+  if (session.status !== "active") {
+    throw new Error("Only active sessions can be paused");
+  }
+  session.status = "paused";
+  session.updatedAt = new Date().toISOString();
+  await storage.set(sessionKey(sessionId), session);
+  await addSessionToProjectIndex(session);
+  return session;
+};
+
+export const resumeSession = async (sessionId: string): Promise<Session> => {
+  const session = await readSessionRecord(sessionId);
+  if (!session) {
+    throw new Error("Session not found");
+  }
+  if (session.status !== "paused") {
+    throw new Error("Only paused sessions can be resumed");
+  }
+  session.status = "active";
+  session.updatedAt = new Date().toISOString();
+  await storage.set(sessionKey(sessionId), session);
+  await addSessionToProjectIndex(session);
+  return session;
+};
+
+export const completeSession = async (sessionId: string): Promise<Session> => {
+  const session = await readSessionRecord(sessionId);
+  if (!session) {
+    throw new Error("Session not found");
+  }
+  if (session.status === "completed" || session.status === "archived") {
+    throw new Error("Session is already completed or archived");
+  }
+  session.status = "completed";
+  session.updatedAt = new Date().toISOString();
+  await storage.set(sessionKey(sessionId), session);
+  await addSessionToProjectIndex(session);
+  return session;
+};
+
+export interface SessionSettingsInput {
+  autoReveal?: boolean;
+  allowChangeVote?: boolean;
+  timerEnabled?: boolean;
+  timerSeconds?: number;
+}
+
+export const updateSessionSettings = async (
+  sessionId: string,
+  settings: SessionSettingsInput
+): Promise<Session> => {
+  const session = await readSessionRecord(sessionId);
+  if (!session) {
+    throw new Error("Session not found");
+  }
+  
+  if (settings.autoReveal !== undefined) {
+    session.autoReveal = settings.autoReveal;
+  }
+  if (settings.allowChangeVote !== undefined) {
+    session.allowChangeVote = settings.allowChangeVote;
+  }
+  if (settings.timerEnabled !== undefined) {
+    session.timerEnabled = settings.timerEnabled;
+  }
+  if (settings.timerSeconds !== undefined) {
+    session.timerSeconds = settings.timerSeconds;
+  }
+  
+  session.updatedAt = new Date().toISOString();
+  await storage.set(sessionKey(sessionId), session);
+  await addSessionToProjectIndex(session);
+  return session;
+};
+
+export const updateParticipantStatus = async (
+  sessionId: string,
+  accountId: string,
+  status: "online" | "away" | "offline"
+): Promise<Participant | null> => {
+  const participant = await storage.get(participantKey(sessionId, accountId));
+  if (!participant || !isParticipant(participant)) {
+    return null;
+  }
+  
+  participant.connectionStatus = status;
+  participant.lastSeenAt = new Date().toISOString();
+  await saveParticipant(sessionId, participant);
+  return participant;
+};
+
+export const setParticipantRole = async (
+  sessionId: string,
+  accountId: string,
+  role: { isObserver?: boolean; isModerator?: boolean }
+): Promise<Participant | null> => {
+  const participant = await storage.get(participantKey(sessionId, accountId));
+  if (!participant || !isParticipant(participant)) {
+    return null;
+  }
+  
+  if (role.isObserver !== undefined) {
+    participant.isObserver = role.isObserver;
+  }
+  if (role.isModerator !== undefined) {
+    participant.isModerator = role.isModerator;
+  }
+  
+  participant.lastSeenAt = new Date().toISOString();
+  await saveParticipant(sessionId, participant);
+  return participant;
 };

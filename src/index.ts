@@ -2,6 +2,7 @@ import Resolver from "@forge/resolver";
 import type { Vote } from "./types/domain";
 import {
   getIssuesForProject,
+  getIssue,
   applyEstimate as applyEstimateRequest,
 } from "./api/jira";
 import {
@@ -15,13 +16,21 @@ import {
   getUserActiveSession,
   startSession,
   toggleReady,
+  pauseSession,
+  resumeSession,
+  completeSession,
+  updateSessionSettings,
 } from "./api/sessions";
 import {
   recordVote,
   clearVotes,
   setIssueRevealState,
   toIssueVoteSnapshot,
+  updateVote,
+  retractVote,
+  skipIssue,
 } from "./api/votes";
+
 import { getProjectConfig, setProjectConfig } from "./api/config";
 import {
   generateRelayToken,
@@ -51,6 +60,14 @@ resolver.define("getIssuesForProject", async (req) => {
     maxResults,
     estimateFieldId: config.estimateFieldId,
   });
+});
+
+resolver.define("getIssue", async (req) => {
+  const { issueKey } = req.payload ?? {};
+  if (!issueKey) {
+    throw new Error("issueKey is required");
+  }
+  return getIssue(issueKey);
 });
 
 resolver.define("createSession", async (req) => {
@@ -179,6 +196,14 @@ resolver.define("castVote", async (req) => {
   if (!isParticipant) {
     throw new Error("You must join the session before voting.");
   }
+
+  const hasExistingVote =
+    session.currentIssueState?.issueKey === issueKey &&
+    session.currentIssueState.votes?.[accountId]?.hasVoted;
+  if (hasExistingVote && !session.session.allowChangeVote) {
+    throw new Error("Vote changes are not allowed for this session.");
+  }
+
   const vote: Vote = {
     sessionId,
     issueKey,
@@ -232,6 +257,12 @@ resolver.define("revealIssue", async (req) => {
     throw new Error("Session not found");
   }
   ctx.ensureSessionAccess(session.session.projectKey);
+  const participant = session.participants.find(
+    (p) => p.accountId === accountId
+  );
+  if (!participant?.isModerator) {
+    throw new Error("Only moderators can reveal votes.");
+  }
   const state = await setIssueRevealState(sessionId, issueKey, true);
   await publishRelayEvent({
     sessionId,
@@ -416,7 +447,7 @@ resolver.define("getUserActiveSession", async (req) => {
   const ctx = new ContextService(req);
   const accountId = ctx.getAccountId();
   const sessionId = await getUserActiveSession(accountId);
-  return { sessionId };
+  return { sessionId, accountId };
 });
 
 resolver.define("startSession", async (req) => {
@@ -469,6 +500,236 @@ resolver.define("toggleReady", async (req) => {
     payload: { participantId: accountId, isReady: !!isReady },
   });
   return updatedSession;
+});
+
+resolver.define("pauseSession", async (req) => {
+  const ctx = new ContextService(req);
+  const { sessionId } = req.payload ?? {};
+  const accountId = ctx.getAccountId();
+  if (!sessionId) {
+    throw new Error("sessionId is required");
+  }
+  const snapshot = await getSessionRecord(sessionId, {
+    viewerAccountId: accountId,
+  });
+  if (!snapshot) {
+    throw new Error("Session not found");
+  }
+  ctx.ensureSessionAccess(snapshot.session.projectKey);
+  const participant = snapshot.participants.find(
+    (p) => p.accountId === accountId
+  );
+  if (!participant?.isModerator) {
+    throw new Error("Only moderators can pause the session.");
+  }
+  const updatedSession = await pauseSession(sessionId);
+  await publishRelayEvent({
+    sessionId,
+    event: "session.paused",
+    payload: { actorId: accountId },
+  });
+  return updatedSession;
+});
+
+resolver.define("resumeSession", async (req) => {
+  const ctx = new ContextService(req);
+  const { sessionId } = req.payload ?? {};
+  const accountId = ctx.getAccountId();
+  if (!sessionId) {
+    throw new Error("sessionId is required");
+  }
+  const snapshot = await getSessionRecord(sessionId, {
+    viewerAccountId: accountId,
+  });
+  if (!snapshot) {
+    throw new Error("Session not found");
+  }
+  ctx.ensureSessionAccess(snapshot.session.projectKey);
+  const participant = snapshot.participants.find(
+    (p) => p.accountId === accountId
+  );
+  if (!participant?.isModerator) {
+    throw new Error("Only moderators can resume the session.");
+  }
+  const updatedSession = await resumeSession(sessionId);
+  await publishRelayEvent({
+    sessionId,
+    event: "session.resumed",
+    payload: { actorId: accountId },
+  });
+  return updatedSession;
+});
+
+resolver.define("completeSession", async (req) => {
+  const ctx = new ContextService(req);
+  const { sessionId } = req.payload ?? {};
+  const accountId = ctx.getAccountId();
+  if (!sessionId) {
+    throw new Error("sessionId is required");
+  }
+  const snapshot = await getSessionRecord(sessionId, {
+    viewerAccountId: accountId,
+  });
+  if (!snapshot) {
+    throw new Error("Session not found");
+  }
+  ctx.ensureSessionAccess(snapshot.session.projectKey);
+  const participant = snapshot.participants.find(
+    (p) => p.accountId === accountId
+  );
+  if (!participant?.isModerator) {
+    throw new Error("Only moderators can complete the session.");
+  }
+  const updatedSession = await completeSession(sessionId);
+  
+  // Calculate summary statistics
+  const totalIssues = updatedSession.issueKeys.length;
+  const estimatedIssues = updatedSession.completedIssueKeys.length;
+  const duration = Math.floor(
+    (new Date(updatedSession.updatedAt).getTime() -
+      new Date(updatedSession.createdAt).getTime()) /
+      1000
+  );
+  
+  await publishRelayEvent({
+    sessionId,
+    event: "session.completed",
+    payload: {
+      completedAt: updatedSession.updatedAt,
+      actorId: accountId,
+      summary: {
+        totalIssues,
+        estimatedIssues,
+        skippedIssues: totalIssues - estimatedIssues,
+        duration,
+      },
+    },
+  });
+  return updatedSession;
+});
+
+resolver.define("updateSessionSettings", async (req) => {
+  const ctx = new ContextService(req);
+  const { sessionId, settings } = req.payload ?? {};
+  const accountId = ctx.getAccountId();
+  if (!sessionId || !settings) {
+    throw new Error("sessionId and settings are required");
+  }
+  const snapshot = await getSessionRecord(sessionId, {
+    viewerAccountId: accountId,
+  });
+  if (!snapshot) {
+    throw new Error("Session not found");
+  }
+  ctx.ensureSessionAccess(snapshot.session.projectKey);
+  const participant = snapshot.participants.find(
+    (p) => p.accountId === accountId
+  );
+  if (!participant?.isModerator) {
+    throw new Error("Only moderators can update session settings.");
+  }
+  const updatedSession = await updateSessionSettings(sessionId, settings);
+  await publishRelayEvent({
+    sessionId,
+    event: "session.settings.updated",
+    payload: { actorId: accountId, settings },
+  });
+  return updatedSession;
+});
+
+resolver.define("updateVote", async (req) => {
+  const ctx = new ContextService(req);
+  const { sessionId, issueKey, value, confidence, comment } = req.payload ?? {};
+  const accountId = ctx.getAccountId();
+  if (!sessionId || !issueKey || !value) {
+    throw new Error("sessionId, issueKey, and value are required");
+  }
+  const session = await getSessionRecord(sessionId, {
+    viewerAccountId: accountId,
+  });
+  if (!session) {
+    throw new Error("Session not found");
+  }
+  ctx.ensureSessionAccess(session.session.projectKey);
+  
+  // Check if vote changes are allowed
+  if (!session.session.allowChangeVote) {
+    throw new Error("Vote changes are not allowed for this session");
+  }
+  
+  const vote: Vote = {
+    sessionId,
+    issueKey,
+    accountId,
+    value,
+    createdAt: new Date().toISOString(),
+    confidence,
+    comment,
+  };
+  const state = await updateVote(sessionId, vote);
+  await publishRelayEvent({
+    sessionId,
+    event: "vote.updated",
+    payload: {
+      issueKey,
+      participantId: accountId,
+      newValue: value,
+      updatedAt: new Date().toISOString(),
+    },
+  });
+  return toIssueVoteSnapshot(state, accountId);
+});
+
+resolver.define("retractVote", async (req) => {
+  const ctx = new ContextService(req);
+  const { sessionId, issueKey } = req.payload ?? {};
+  const accountId = ctx.getAccountId();
+  if (!sessionId || !issueKey) {
+    throw new Error("sessionId and issueKey are required");
+  }
+  const session = await getSessionRecord(sessionId, {
+    viewerAccountId: accountId,
+  });
+  if (!session) {
+    throw new Error("Session not found");
+  }
+  ctx.ensureSessionAccess(session.session.projectKey);
+  const state = await retractVote(sessionId, issueKey, accountId);
+  await publishRelayEvent({
+    sessionId,
+    event: "vote.retracted",
+    payload: { issueKey, participantId: accountId },
+  });
+  return toIssueVoteSnapshot(state, accountId);
+});
+
+resolver.define("skipIssue", async (req) => {
+  const ctx = new ContextService(req);
+  const { sessionId, issueKey, reason } = req.payload ?? {};
+  const accountId = ctx.getAccountId();
+  if (!sessionId || !issueKey) {
+    throw new Error("sessionId and issueKey are required");
+  }
+  const snapshot = await getSessionRecord(sessionId, {
+    viewerAccountId: accountId,
+  });
+  if (!snapshot) {
+    throw new Error("Session not found");
+  }
+  ctx.ensureSessionAccess(snapshot.session.projectKey);
+  const participant = snapshot.participants.find(
+    (p) => p.accountId === accountId
+  );
+  if (!participant?.isModerator) {
+    throw new Error("Only moderators can skip issues.");
+  }
+  const state = await skipIssue(sessionId, issueKey);
+  await publishRelayEvent({
+    sessionId,
+    event: "issue.skipped",
+    payload: { issueKey, actorId: accountId, reason },
+  });
+  return toIssueVoteSnapshot(state, accountId);
 });
 
 export const handler = resolver.getDefinitions();

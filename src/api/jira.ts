@@ -22,6 +22,19 @@ interface JiraSearchResponse {
   }>;
 }
 
+interface JiraIssueResponse {
+  key: string;
+  self?: string;
+  fields: {
+    summary?: string;
+    status?: { name?: string };
+    issuetype?: { name?: string };
+    assignee?: { displayName?: string };
+    description?: unknown;
+    [key: string]: unknown;
+  };
+}
+
 const DEFAULT_MAX_RESULTS = 20;
 
 export const getIssuesForProject = async ({
@@ -80,6 +93,37 @@ export const getIssuesForProject = async ({
   }));
 };
 
+export const getIssue = async (issueKey: string): Promise<Issue> => {
+  const response = await api
+    .asUser()
+    .requestJira(
+      route`/rest/api/3/issue/${issueKey}?fields=summary,status,issuetype,assignee,description`,
+      {
+        headers: {
+          Accept: "application/json",
+        },
+      }
+    );
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`Failed to fetch issue ${issueKey} (${response.status}): ${text}`);
+  }
+
+  const issue = (await response.json()) as JiraIssueResponse;
+
+  return {
+    key: issue.key,
+    summary: issue.fields.summary ?? "No summary",
+    status: issue.fields.status?.name ?? "Unknown",
+    estimate: extractEstimate(issue.fields),
+    type: issue.fields.issuetype?.name,
+    assignee: issue.fields.assignee?.displayName,
+    description: extractDescription(issue.fields.description),
+    link: buildIssueLink(issue),
+  };
+};
+
 const estimateFieldCandidates = ["customfield_10016", "customfield_10002"];
 
 const extractEstimate = (
@@ -96,6 +140,43 @@ const extractEstimate = (
     }
   }
   return undefined;
+};
+
+type DescriptionNode = {
+  text?: string;
+  content?: DescriptionNode[];
+};
+
+const extractDescription = (rawDescription: unknown): string | undefined => {
+  if (!rawDescription) {
+    return undefined;
+  }
+  if (typeof rawDescription === "string") {
+    return rawDescription;
+  }
+
+  const textParts: string[] = [];
+  const walk = (nodes: DescriptionNode[]) => {
+    nodes.forEach((node) => {
+      if (!node) {
+        return;
+      }
+      if (typeof node.text === "string") {
+        textParts.push(node.text);
+      }
+      if (Array.isArray(node.content)) {
+        walk(node.content);
+      }
+    });
+  };
+
+  const doc = rawDescription as { content?: DescriptionNode[] };
+  if (Array.isArray(doc.content)) {
+    walk(doc.content);
+  }
+
+  const flattened = textParts.join(" ").trim();
+  return flattened || undefined;
 };
 
 const buildIssueLink = (issue: {
@@ -140,5 +221,34 @@ export const applyEstimate = async (
     sessionId,
     issueKey,
     value,
+  };
+};
+
+
+interface JiraUserResponse {
+  accountId: string;
+  displayName?: string;
+  avatarUrls?: Record<string, string>;
+}
+
+export const fetchCurrentUserProfile = async (): Promise<{
+  accountId: string;
+  displayName: string;
+  avatarUrl: string;
+}> => {
+  const response = await api.asUser().requestJira(route`/rest/api/3/myself`);
+  if (!response.ok) {
+    throw new Error(
+      `Failed to resolve current user profile (${response.status})`
+    );
+  }
+  const data = (await response.json()) as JiraUserResponse;
+  if (!data.accountId) {
+    throw new Error("Current user profile missing accountId");
+  }
+  return {
+    accountId: data.accountId,
+    displayName: data.displayName ?? "Unknown teammate",
+    avatarUrl: data.avatarUrls?.["48x48"] ?? "",
   };
 };

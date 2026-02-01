@@ -13,9 +13,11 @@ interface IssueStateRecord {
   isRevealed: boolean;
 }
 
-const defaultState = (issueKey: string): IssueVoteState => ({
+const defaultState = (sessionId: string, issueKey: string): IssueVoteState => ({
+  sessionId,
   issueKey,
   isRevealed: false,
+  skipped: false,
   votes: {},
 });
 
@@ -52,8 +54,10 @@ export const getIssueState = async (
   };
   const votes = await listVotes(sessionId, issueKey);
   return {
+    sessionId,
     issueKey,
     isRevealed: meta.isRevealed,
+    skipped: false,
     votes,
   };
 };
@@ -99,7 +103,7 @@ export const clearVotes = async (
     await Promise.all(results.map(({ key }) => storage.delete(key)));
     cursor = nextCursor;
   } while (cursor);
-  const next = defaultState(issueKey);
+  const next = defaultState(sessionId, issueKey);
   await persistMeta(sessionId, issueKey, { isRevealed: next.isRevealed });
   return next;
 };
@@ -112,8 +116,10 @@ export const setIssueRevealState = async (
   await persistMeta(sessionId, issueKey, { isRevealed });
   const votes = await listVotes(sessionId, issueKey);
   return {
+    sessionId,
     issueKey,
     isRevealed,
+    skipped: false,
     votes,
   };
 };
@@ -143,5 +149,135 @@ export const toIssueVoteSnapshot = (
     issueKey: state.issueKey,
     isRevealed: state.isRevealed,
     votes,
+  };
+};
+
+export const updateVote = async (
+  sessionId: string,
+  vote: Vote
+): Promise<IssueVoteState> => {
+  const state = await getIssueState(sessionId, vote.issueKey);
+  if (state.isRevealed) {
+    throw new Error("Cannot update vote after reveal");
+  }
+  
+  const existingVote = state.votes[vote.accountId];
+  if (!existingVote) {
+    throw new Error("No existing vote to update");
+  }
+  
+  const updatedVote: Vote = {
+    ...vote,
+    updatedAt: new Date().toISOString(),
+  };
+  
+  await storage.set(voteKey(sessionId, vote.issueKey, vote.accountId), updatedVote);
+  return {
+    ...state,
+    votes: {
+      ...state.votes,
+      [vote.accountId]: updatedVote,
+    },
+  };
+};
+
+export const retractVote = async (
+  sessionId: string,
+  issueKey: string,
+  accountId: string
+): Promise<IssueVoteState> => {
+  const state = await getIssueState(sessionId, issueKey);
+  if (state.isRevealed) {
+    throw new Error("Cannot retract vote after reveal");
+  }
+  
+  await storage.delete(voteKey(sessionId, issueKey, accountId));
+  const remainingVotes = { ...state.votes };
+  delete remainingVotes[accountId];
+  
+  return {
+    ...state,
+    votes: remainingVotes,
+  };
+};
+
+export const skipIssue = async (
+  sessionId: string,
+  issueKey: string
+): Promise<IssueVoteState> => {
+  await persistMeta(sessionId, issueKey, { isRevealed: false });
+  const state = await getIssueState(sessionId, issueKey);
+  return {
+    ...state,
+    skipped: true,
+  };
+};
+
+export interface ConsensusResult {
+  hasConsensus: boolean;
+  consensusValue?: string;
+  consensusType?: "unanimous" | "majority" | "moderator-override";
+  voteCounts: Record<string, number>;
+}
+
+export const detectConsensus = (votes: Record<string, Vote>): ConsensusResult => {
+  const voteCounts: Record<string, number> = {};
+  const voteList = Object.values(votes);
+  
+  if (voteList.length === 0) {
+    return { hasConsensus: false, voteCounts };
+  }
+  
+  // Count votes
+  for (const vote of voteList) {
+    voteCounts[vote.value] = (voteCounts[vote.value] || 0) + 1;
+  }
+  
+  const uniqueValues = Object.keys(voteCounts);
+  
+  // Unanimous consensus
+  if (uniqueValues.length === 1) {
+    return {
+      hasConsensus: true,
+      consensusValue: uniqueValues[0],
+      consensusType: "unanimous",
+      voteCounts,
+    };
+  }
+  
+  // Majority consensus (more than 50%)
+  const totalVotes = voteList.length;
+  const sortedByCount = uniqueValues.sort((a, b) => voteCounts[b] - voteCounts[a]);
+  const topValue = sortedByCount[0];
+  const topCount = voteCounts[topValue];
+  
+  if (topCount > totalVotes / 2) {
+    return {
+      hasConsensus: true,
+      consensusValue: topValue,
+      consensusType: "majority",
+      voteCounts,
+    };
+  }
+  
+  // No consensus
+  return {
+    hasConsensus: false,
+    voteCounts,
+  };
+};
+
+export const setConsensus = async (
+  sessionId: string,
+  issueKey: string,
+  consensusValue: string,
+  consensusType: "unanimous" | "majority" | "moderator-override"
+): Promise<IssueVoteState> => {
+  const state = await getIssueState(sessionId, issueKey);
+  return {
+    ...state,
+    consensus: consensusValue,
+    consensusType,
+    consensusReachedAt: new Date().toISOString(),
   };
 };
